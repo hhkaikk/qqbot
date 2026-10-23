@@ -1,0 +1,29 @@
+[Unit]
+Description=QQ bot DeepSeek Harness
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=qqbot
+Group=qqbot
+WorkingDirectory=/opt/qqbot/app
+Environment=HOME=/opt/qqbot/state/home
+Environment=DSH_HOME=/opt/qqbot/state/dsh
+Environment=PATH=/opt/qqbot/runtime/node/bin:/opt/qqbot/runtime/dsh/node_modules/.bin:/usr/local/bin:/usr/bin:/bin
+Environment=NODE_OPTIONS=--max-old-space-size=384
+ExecStart=/opt/qqbot/runtime/node/bin/node /opt/qqbot/runtime/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js --profile web --host 127.0.0.1 --port 13080 --no-open
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=25
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/qqbot
+MemoryHigh=500M
+MemoryMax=650M
+
+[Install]
+WantedBy=multi-user.target

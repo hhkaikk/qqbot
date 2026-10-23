@@ -1,0 +1,31 @@
+services:
+  napcat:
+    # 官方 v4.18.41 的 linux/amd64 镜像，固定摘要，避免 latest 漂移。
+    image: mlikiowa/napcat-docker@sha256:69c5ca84ec226d658d0d5cd19997c6c89169da3206faa2948c2dc67d669b6406
+    container_name: qqbot-napcat
+    hostname: qqbot-gateway
+    restart: unless-stopped
+    environment:
+      ACCOUNT: "${QQ_BOT_ACCOUNT:?请设置 QQ_BOT_ACCOUNT 为专用机器人账号}"
+      NAPCAT_UID: "${NAPCAT_UID:?请通过 install-napcat.sh 启动}"
+      NAPCAT_GID: "${NAPCAT_GID:?请通过 install-napcat.sh 启动}"
+    ports:
+      - "127.0.0.1:16099:6099"
+      - "127.0.0.1:13000:3000"
+      - "127.0.0.1:13001:3001"
+    volumes:
+      - /opt/qqbot/gateway/qq:/app/.config/QQ
+      - /opt/qqbot/gateway/config:/app/napcat/config
+      - /opt/qqbot/gateway/plugins:/app/napcat/plugins
+    mem_limit: 640m
+    cpus: 1.0
+    pids_limit: 384
+    security_opt:
+      - no-new-privileges:true
+    ulimits:
+      core: 0
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"

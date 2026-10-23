@@ -1,0 +1,29 @@
+[Unit]
+Description=QQ bot social bridge
+After=network-online.target qqbot-dsh.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=qqbot
+Group=qqbot
+WorkingDirectory=/opt/qqbot/app
+Environment=HOME=/opt/qqbot/state/home
+Environment=DSH_HOME=/opt/qqbot/state/dsh
+Environment=PATH=/opt/qqbot/runtime/node/bin:/usr/local/bin:/usr/bin:/bin
+Environment=NODE_OPTIONS=--max-old-space-size=192
+ExecStart=/opt/qqbot/runtime/node/bin/node /opt/qqbot/app/src/bridge.js
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=20
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/qqbot
+MemoryHigh=220M
+MemoryMax=320M
+
+[Install]
+WantedBy=multi-user.target
