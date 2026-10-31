@@ -1,5 +1,22 @@
 // 控制台 Token 用量路由。认证仍由主入口执行，这里保留跨会话管理信息的额外隔离。
 // 注入账本和响应函数，避免路由依赖桥接运行态、磁盘或连接。
+// 调用者须先完成会话令牌、白名单和工具开关校验；这里只返回指定会话的最小汇总。
+export async function readConversationTokenUsage(ledger, key) {
+  const note = '本群或当前私聊的已记录累计用量，不是今日用量；尚未结算的请求可能未计入。费用按配置价目表估算。';
+  const unavailable = { available: false, scope: 'current_conversation', period: 'recorded_total', totalTokens: null, inputTokens: null, outputTokens: null, estimatedCost: null, note };
+  try {
+    const detail = await ledger.conversation(key, { turnLimit: 1 });
+    const buckets = detail?.buckets;
+    if (!detail || !buckets || !['cacheMiss', 'cacheHit', 'cacheWrite', 'output'].every(k => Number.isFinite(buckets[k]) && buckets[k] >= 0)) return unavailable;
+    const inputTokens = buckets.cacheMiss + buckets.cacheHit + buckets.cacheWrite;
+    return { available: true, scope: 'current_conversation', period: 'recorded_total',
+      generatedAt: detail.generatedAt, totalTokens: inputTokens + buckets.output, inputTokens,
+      outputTokens: buckets.output, cacheHitTokens: buckets.cacheHit,
+      estimatedCost: Number.isFinite(detail.cost) ? { amount: detail.cost, currency: detail.currency } : null,
+      note };
+  } catch { return unavailable; }
+}
+
 export function createTokenRoutes({ ledger, sendJson, getSymbol, log = () => {} }) {
   return async function handle(req, url) {
     if (!url.pathname.startsWith('/api/tokens/')) return false;

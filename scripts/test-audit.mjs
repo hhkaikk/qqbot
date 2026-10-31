@@ -14,12 +14,12 @@ const tests = [
   // 且只留下一行日志 —— 必须有登记期断言钉住（活 DSH 侧的实测见
   // scripts/test-dsh-session-retire.mjs）。
   'test-dsh-inbox-projection.mjs',
-  'test-md-to-plain.mjs', 'test-slang-learn.mjs', 'test-mux-reconnect.mjs',
+  'test-md-to-plain.mjs', 'test-slang-learn.mjs', 'test-mux-reconnect.mjs', 'test-mux-handshake.mjs', 'test-event-readiness.mjs',
   'test-token-economy.mjs', 'test-qq-model-view.mjs', 'test-qq-preset-contract.mjs', 'test-speaker-identity.mjs', 'test-conversation-coherence.mjs', 'test-member-memory.mjs', 'test-message-relations.mjs',
-  'test-reply-wait.mjs', 'test-preset-prompt.mjs', 'test-role-card.mjs',
+  'test-reply-wait.mjs', 'test-provider-error-recovery.mjs', 'test-preset-prompt.mjs', 'test-role-card.mjs',
   // NapCat 适配与状态管理指令：仅使用模拟网关，不运行真实发送脚本。
   'test-napcat-stickers.mjs', 'test-service-health.mjs', 'test-server-status.mjs',
-  'test-social-economy.mjs', 'test-onebot-http.mjs', 'test-token-routes.mjs',
+  'test-social-economy.mjs', 'test-direct-only.mjs', 'test-onebot-http.mjs', 'test-token-routes.mjs', 'test-agent-token-usage.mjs',
   // 体检修复回归：无令牌智能体调用面、send-burst 失败回滚、唤醒限频重试、
   // 定时器类暂存唤醒补发、collector 生命周期、ownerQQ 覆盖语义、预设名校验、
   // wake triggers 白名单、memory-update 边界、wait 租约归一化、md/黑话/表情/账本；
@@ -35,9 +35,19 @@ const tests = [
   // 以及控制台「立即唤醒」不得顶掉首次 bootstrap（否则初始提示词永远发不出去）。
   'test-v2-initial-prompt.mjs',
   // 令牌账本 / 价目表 与 体检修复回归（纯函数，无外部依赖）
-  'test-token-usage.mjs', 'test-hardening.mjs',
+  'test-token-usage.mjs', 'test-chat-context-budget.mjs', 'test-token-replay-identity.mjs', 'test-hardening.mjs',
   // 语音发送（纯函数 + 端点存在性；真发语音只在 --live 或 CLI 里做）
   'test-voice.mjs',
+  'test-speech-input.mjs', 'test-speech-output.mjs', 'test-speech-bridge.mjs',
+  'test-speech-siliconflow.mjs', 'test-speech-provider-admin.mjs', 'test-speech-provider-routes.mjs',
+  'test-speech-quality.mjs', 'test-speech-quality-audio.mjs',
+  'test-gateway-account-setup.mjs', 'test-gateway-health-exit.mjs',
+  'test-gateway-recovery.mjs',
+  'test-gateway-recovery-status.mjs',
+  'test-dashboard.mjs', 'test-dashboard-routes.mjs', 'test-dashboard-client.mjs',
+  // 管理配置拆分：独立接口与真实 HTTP 权限/持久化/模型热更新回归。
+  'test-management-module.mjs', 'test-management-routes.mjs',
+  'test-napcat-offline-diagnostics.mjs',
   // 音量：参数校验 + 真的调用 ffmpeg 调音量 + 自算 RMS 验证增益
   'test-voice-volume.mjs',
   // 边界：并发/异常输入/上传限额/越权（纯函数段 + 可选的 live 段）

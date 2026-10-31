@@ -2055,6 +2055,7 @@ button:active:not(:disabled) {
 
       </div></details>
 <details class="settings-group"><summary>语音库与语音发送（调试）</summary><div class="settings-content">
+      <p><a id="speechProviderLink" href="/speech-setup">配置硅基流动与参考音色 →</a></p>
       <div class="meta" style="margin-bottom:8px">
         语音库目录：<code>qq-bridge/audio/</code>（改 <code>socialV2.voice.dir</code> 可换）。把音频文件丢进去即可被 AI 用 <code>qq_send_voice</code> 发出；
         本面板用于调试与试发 —— 试发走的是与 AI 通道相同的解析/校验/限流路径（<code>/api/voice/send</code>），只是由你在控制台触发。
@@ -2502,7 +2503,7 @@ button:active:not(:disabled) {
 <section id="section-token" data-page="access" class="card">
       <h2>控制台访问令牌</h2>
       <div class="meta">用于打开本控制台 / 调用管理 API 的令牌。可手动输入新令牌保存，或留空生成随机令牌。修改后当前页面会自动使用新令牌。</div>
-      <input type="password" id="consoleTokenInput" placeholder="输入新令牌（至少 16 位），留空则生成随机" autocomplete="new-password">
+      <input type="password" id="consoleTokenInput" placeholder="输入新密码（至少 8 位），留空则生成随机凭据" autocomplete="new-password">
       <div class="row" style="margin-top:8px">
         <button id="consoleTokenSave" class="small">保存令牌</button>
         <button id="consoleTokenRandom" class="small">生成随机令牌</button>
@@ -2683,6 +2684,21 @@ function fmtAgoMs(ms) {
 }
 // SnowLuma 上游健康：控制台是唯一的可视化出口（桥接侧只有日志）。
 // 旧版桥接的 /api/status 没有 snowluma 字段，一律当「未知」处理，不抛错。
+function renderGatewayRecovery(recovery, upstream) {
+  if (!recovery) return;
+  const strong = document.getElementById('metricSnowluma');
+  const hint = document.getElementById('metricSnowlumaHint');
+  if (!strong || !hint) return;
+  if (recovery.stale || recovery.phase === 'unknown') { hint.textContent += '；自动恢复状态已过期'; return; }
+  if (recovery.requiresAction || recovery.phase === 'needs_action') {
+    strong.textContent = '需要处理'; strong.className = 'err'; hint.textContent = recovery.message; return;
+  }
+  if (['waiting','recovering','cooldown'].includes(recovery.phase)) {
+    strong.textContent = '恢复中'; strong.className = 'err'; hint.textContent = recovery.message; return;
+  }
+  if (recovery.phase === 'unavailable') { strong.textContent = '接口异常'; strong.className = 'err'; hint.textContent = recovery.message; return; }
+  if (recovery.phase === 'online' && upstream?.connected && !upstream.degraded) hint.textContent = recovery.message;
+}
 function renderSnowlumaHealth(sl) {
   const el = document.getElementById('snowlumaWarn');
   const strong = document.getElementById('metricSnowluma');
@@ -2707,7 +2723,7 @@ function renderSnowlumaHealth(sl) {
   } else if (!connected) {
     strong.textContent = '未连接';
     strong.className = 'err';
-    hint.textContent = '连不上 QQ 网关，请先启动 SnowLuma';
+    hint.textContent = 'QQ 网关未连接，请查看登录及自动恢复状态';
   } else {
     strong.textContent = '正常 · 接收中';
     strong.className = 'ok';
@@ -3197,6 +3213,9 @@ document.getElementById('aiNotifySend').addEventListener('click', async () => {
 });
 
 // ── 语音库与语音发送（调试面板） ───────────────────────────────────────────
+document.getElementById('speechProviderLink').addEventListener('click',event=>{
+  event.preventDefault();location.href='/speech-setup?token='+encodeURIComponent(localStorage.getItem('consoleToken')||'');
+});
 // 试发走 /api/voice/send（操作者通道，凭控制台令牌），与 CLI 同一条路径 ——
 // 所以这里能验证「白名单 / 时长体积上限 / 限流 / 文件名审计」是不是真的生效。
 let voiceEntries = [];
@@ -4403,8 +4422,8 @@ async function changeConsoleToken(generate) {
   const input = document.getElementById('consoleTokenInput');
   const msg = document.getElementById('consoleTokenMsg');
   const token = generate ? '' : input.value.trim();
-  if (!generate && token && token.length < 16) {
-    msg.textContent = '❌ 令牌至少需要 16 位';
+  if (!generate && token && token.length < 8) {
+    msg.textContent = '❌ 访问密码至少需要 8 位';
     msg.className = 'meta err';
     return;
   }
@@ -4488,6 +4507,7 @@ function updateOverview(status, modeLabel) {
   document.getElementById('metricDsh').className = status.dshReady ? 'ok' : 'err';
   document.getElementById('metricDshHint').textContent = status.dshReady ? '桥接状态已同步' : '请检查 DSH 是否运行';
   renderSnowlumaHealth(status.snowluma);
+  renderGatewayRecovery(status.gatewayRecovery, status.snowluma);
   document.getElementById('metricMode').textContent = modeLabel.replace('模式', '');
   document.getElementById('metricRole').textContent = '角色 · ' + (status.role || '默认人格');
   document.getElementById('accessSummary').textContent = '管理员 ' + (status.ownerQQ || '未设置') + ' · ' + (status.allowGroups || []).length + ' 个白名单群 · ' + (status.allowPrivate || []).length + ' 位白名单好友';

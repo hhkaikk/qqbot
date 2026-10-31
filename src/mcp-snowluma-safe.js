@@ -19,6 +19,7 @@ import { z } from 'zod';
 // 在 MCP 里拦会连「安全拒绝理由」都拿不到，反而让模型无法把话说清楚。
 import { SENSITIVE_RE } from './sensitive.js';
 import { serializeModelData } from './qq-model-view.js';
+import { messageImageResult } from './image-tool-result.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -586,7 +587,7 @@ server.tool(
 
 server.tool(
   'qq_social_state',
-  '查看指定会话的二代仿真状态：WakeConfig、未读数、上次唤醒原因、上次发言时间等（只读）。',
+  '查看自己当前会话的状态，以及 tokenUsage 中已记录累计的输入/输出 Token、缓存命中和估算费用；不是今日或全账号用量，未结算请求可能未计入。只读，不能查询其他群。',
   { key: z.string().describe('会话 key，格式 group:群号 或 private:QQ号'), token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）') },
   async ({ key, token }) => {
     try {
@@ -1014,37 +1015,22 @@ server.tool(
 if (cfg.socialV2?.tools?.getImages !== false) {
   server.tool(
     'qq_get_message_images',
-    '获取指定 QQ 消息中的图片/表情，并直接以图像内容返回给模型（视觉模型可“看懂”）。当消息文本里出现 [图片]、[表情] 或 hasMedia=true 时调用。支持一条消息里的多张图片/表情；二代模式下必须携带会话令牌。',
+    '查看指定 QQ 消息中的真实图片/表情。当消息有 [图片]、[表情] 或 hasMedia=true 时调用后再描述。每张图紧邻原消息和序号标签；imageIndices 可只看指定几张，也可查看默认上限之后的图片。只重试失败项一次，不反复下载已看过的图。二代模式必须带会话令牌。',
     {
       key: z.string().describe('会话 key，格式 group:群号 或 private:QQ号'),
       messageId: z.union([z.number(), z.string()]).describe('要查看的消息 id（QQ 消息 id 可为负数；二代也可用本地 seq）'),
+      imageIndices: z.array(z.number().int().min(1)).min(1).max(8).optional().describe('可选：原消息中从1开始的媒体序号，如[2]只看第二张；不传则按默认上限查看'),
       token: z.string().optional().describe('二代会话令牌（reserved2 下必填，见唤醒提示中的【会话令牌】）')
     },
-    async ({ key, messageId, token }) => {
+    async ({ key, messageId, imageIndices, token }) => {
       try {
         const q = new URLSearchParams({ key, messageId: String(messageId) });
+        if (imageIndices) q.set('indices', imageIndices.join(','));
         const data = await agentApi(`/api/images/message?${q.toString()}`, {
           headers: token ? { 'x-agent-token': token } : {},
           timeoutMs: 180000
         });
-        const images = Array.isArray(data?.images) ? data.images : [];
-        if (!images.length) {
-          return { content: [{ type: 'text', text: `消息 ${messageId} 没有可返回的图片/表情：${data?.note || '未找到'}` }] };
-        }
-        const content = [];
-        const textParts = [];
-        for (const img of images) {
-          if (img?.data && img?.mimeType) {
-            textParts.push(`[${img.kind === 'face' ? '表情' : '图片'}${img.index ?? ''}${img.text ? ' ' + img.text : ''}]`);
-            content.push({ type: 'image', mimeType: img.mimeType, data: img.data });
-          } else {
-            textParts.push(`[${img.kind === 'face' ? '表情' : '图片'}${img.index ?? ''}${img.text ? ' ' + img.text : '（获取失败）'}]`);
-          }
-        }
-        if (textParts.length) {
-          content.unshift({ type: 'text', text: `消息 ${messageId} 的媒体内容（${images.length} 项）：\n${textParts.join('\n')}` });
-        }
-        return { content };
+        return messageImageResult(data, messageId);
       } catch (error) {
         return { content: [{ type: 'text', text: `获取图片失败：${error?.message ?? error}` }], isError: true };
       }
@@ -1166,22 +1152,24 @@ if (cfg.socialV2?.sticker?.enabled !== false && cfg.socialV2?.tools?.collectStic
 if (cfg.socialV2?.voice?.enabled !== false && cfg.socialV2?.tools?.sendVoice !== false) {
   server.tool(
     'qq_send_voice',
-    '在指定会话发一条 QQ 语音（把语音库里准备好的音频当语音条发出去）。voice 传 qq_list_voices 返回的 name（文件名，可带子目录），也可以直接传语音库里的文件名（不带扩展名也能匹配）。注意：① 只能发语音库（qq-bridge/audio/）里的文件，不能发任意本地路径，也不能发 URL/base64；② 受时长与频率上限约束（见 qq_list_voices 的 limits），超限会被拒绝；③ 语音是「开口说话」的强表达，别滥用，闲聊里偶尔发一条即可；④ 返回的 verified=true 表示已经用 get_msg 回读到这条消息的 record 段（语音确实落地了）—— 只有 verified=true 才能对用户说你发了语音；⑤ readback 只对「收到的」语音有意义（QQ 会转写别人的语音），自己发的语音一般拿不到转写文本，默认关闭，别依赖它。',
+    '在指定会话发送 QQ 语音。text 与 voice 必须二选一：text 将最多 300 字交给已配置的语音服务合成（该服务会接收待朗读文字）；voice 使用 qq_list_voices 返回的语音库 name。仅在当前收到语音或用户明确要求语音时使用，文字聊天默认文字。不得传 URL、base64 或任意本地路径。默认上限 30 秒、3MB、每分钟 2 条/每小时 10 条，以后端配置为准。失败禁止反复重试；只有返回 verified=true（get_msg 回读确认 record 段）才能宣称发送成功。readback 默认关闭，自己发出的语音通常无法转写；收到的语音仅使用 QQ 原生 fetch_ptt_text 转写，失败时诚实说明并请用户改发文字，不得假装听懂。',
     {
       key: z.string().describe('会话 key，格式 group:群号 或 private:QQ号'),
       token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）'),
-      voice: z.string().describe('语音库里的文件名（来自 qq_list_voices 的 name，可带子目录/可省略扩展名）'),
+      text: z.string().optional().describe('待合成的中文女声文字，最多 300 字；与 voice 二选一'),
+      voice: z.string().optional().describe('语音库里的文件名（来自 qq_list_voices 的 name，可带子目录/可省略扩展名）；与 text 二选一'),
       label: z.string().optional().describe('可选：写进会话记录里的说明，如「说了句晚安」'),
       verify: z.boolean().optional().describe('是否回读校验语音已落地（默认 true，建议保持开启）'),
       readback: z.boolean().optional().describe('是否额外索取 QQ 转写文本（自己发的语音通常没有，默认 false）')
     },
-    async ({ key, token, voice, label, verify, readback }) => {
+    async ({ key, token, text, voice, label, verify, readback }) => {
       try {
         const data = await agentApi('/api/socialV2/send-voice', {
           method: 'POST',
           body: JSON.stringify({
             key,
-            voice: String(voice),
+            text,
+            voice,
             label: label || '',
             verify: verify !== false,
             readback: readback === true,
@@ -1199,7 +1187,7 @@ if (cfg.socialV2?.voice?.enabled !== false && cfg.socialV2?.tools?.sendVoice !==
 
   server.tool(
     'qq_list_voices',
-    '查看可用的语音库（qq-bridge 的 audio 目录里准备好的音频文件）：文件名、时长、大小。想发语音前先调用这个看有哪些能发（名字用返回的 name）。返回里 limits 是时长/体积/频率上限。语音库里没有合适内容时不要硬发，也不要假装发了语音。',
+    '查看可用的语音库（qq-bridge 的 audio 目录）：文件名、时长、大小及 limits。使用 qq_send_voice 的 voice 参数时可先查询文件名；直接用 text 合成语音无需先列语音库。语音库里没有合适内容时不要硬发；未确认发送成功不得宣称已发送。',
     {
       key: z.string().describe('会话 key，格式 group:群号 或 private:QQ号'),
       token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）'),
@@ -1353,6 +1341,7 @@ if (cfg.socialV2?.tools?.getForwardMsg !== false) {
             const mediaImages = Array.isArray(mediaRes?.images) ? mediaRes.images : [];
             for (const img of mediaImages) {
               if (img?.data && img?.mimeType) {
+                content.push({ type: 'text', text: `合并转发 ${id} · 第 ${img.index ?? '?'} 张图片${img.text ? '：' + img.text : ''}` });
                 content.push({ type: 'image', mimeType: img.mimeType, data: img.data });
                 imageTexts.push(`[转发内图片${img.index != null ? ' ' + img.index : ''}${img.text ? ' ' + img.text : ''}]`);
               } else {

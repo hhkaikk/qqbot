@@ -1,3 +1,8 @@
+import * as siliconflowSpeech from '../src/speech-siliconflow.js';
+import * as speechQuality from '../src/speech-quality.js';
+import * as speechProviderAdmin from '../src/speech-provider-admin.js';
+import * as speechInputModule from '../src/speech-input.js';
+import * as speechOutputModule from '../src/speech-output.js';
 // Execute the real bridge initialization/functions against temporary files and fake peers.
 // No production config, QQ connection, DSH process, or persistent home is accessed.
 import fs from 'node:fs';
@@ -18,6 +23,12 @@ import * as sticker from '../src/sticker-lib.js';
 import * as stickerGateway from '../src/sticker-gateway.js';
 import * as serverStatus from '../src/server-status.js';
 import * as serviceHealth from '../src/service-health.js';
+import * as gatewayRecoveryStatus from '../src/gateway-recovery-status.js';
+import * as dashboardModule from '../src/dashboard.js';
+import * as spendGuardModule from '../src/spend-guard.js';
+import * as diagnosticsModule from '../src/message-diagnostics.js';
+import * as operationsRoutes from '../src/operations-routes.js';
+import * as managementRoutes from '../src/management-routes.js';
 import * as economy from '../src/social-economy.js';
 import * as onebotHttp from '../src/onebot-http.js';
 import * as tokenRoutes from '../src/token-routes.js';
@@ -132,6 +143,7 @@ export async function bridgeHarness({ config = {}, savedState, files = {}, globa
     buildWakePromptV2, buildWakeSnapshotV2, sendWakePromptV2, socialV2,
     refreshMode, modeAllowed, trackTurnEvent, replayPendingWakeReasonsV2,
     collectors, setupSleepTimerV2, evaluateWakeTriggerV2, markReadCalledKeys,
+    pumpMux, pendingWakeKeys, wakeConfigMissCount, checkDsh, tokenLedger, spendGuard, diagnostics, getReady() { return dshReady; },
     getInitialPrompt, setInitialPrompt, loadInitialPrompts, formatInitialPromptV2,
     initialPrompts, initialPromptMaxChars,
     extractMediaFromSegments, segmentsToText, fetchOneBotImage, fetchMediaData, resolveMediaList,
@@ -144,9 +156,9 @@ export async function bridgeHarness({ config = {}, savedState, files = {}, globa
       selfUserId = String(id ?? '');
       selfNickname = selfDisplayName.toLowerCase() || 'deepseek';
     },
-    flushQueue, retireSession,
+    flushQueue, retireSession, appendRecentMessage, socialLoopTick, socialState,
     voiceCfg, voiceLibrary, resolveVoicePathForV2, resolveVoicePathForOperator,
-    voiceBudgetCheck, sendVoiceV2, sendVoiceForV2, assertOutboundAuditOk,
+    voiceBudgetCheck, sendVoiceV2, sendVoiceForV2, sendSpeechForV2, validateSpeechText, assertOutboundAuditOk,
     setMode(value) { currentMode = value; },
     setReady(value) { dshReady = value; },
     setPresets(value) { dshPresetIds = value; dshDefaultPreset = 'standard'; },
@@ -169,7 +181,8 @@ export async function bridgeHarness({ config = {}, savedState, files = {}, globa
     SnowLumaWebSocketClient: FakeBot, text: (s) => s,
     discoverDshLaunchToken: () => '', unwrap, createTurnCollector,
     ...markdown, ...sensitive, ...wait, ...safeFetch, ...forward, ...slang, ...sticker, ...stickerGateway,
-    ...modelPrices, ...tokenLedger, ...voiceLib, ...stateAcl, ...presetPrompt, ...roleCard, ...memberMemory, ...messageRelationsModule, ...serverStatus, ...serviceHealth, ...economy, ...onebotHttp, ...tokenRoutes,
+    ...modelPrices, ...tokenLedger, ...voiceLib, ...stateAcl, ...presetPrompt, ...roleCard, ...memberMemory, ...messageRelationsModule, ...serverStatus, ...serviceHealth, ...gatewayRecoveryStatus, ...dashboardModule, ...economy, ...onebotHttp, ...tokenRoutes, ...speechInputModule, ...speechOutputModule, ...siliconflowSpeech, ...speechProviderAdmin, ...speechQuality,
+    ...spendGuardModule, ...diagnosticsModule, ...operationsRoutes, ...managementRoutes,
     // ACL 收紧会 spawn icacls 去改**真实**文件系统；测试不该做这件事（同理见下面的
     // cleanupTemp / processAudioVolume 桩）。桩成成功，让 hardenStateDirAcl 走正常分支。
     hardenDir: () => ({ ok: true, detail: 'stub' }),
@@ -201,6 +214,7 @@ export async function bridgeHarness({ config = {}, savedState, files = {}, globa
   bridge.setPresets(['standard', 'qq-chat', 'qq-chat-v2']);
   bridge.setReady(true);
   return { ...bridge, calls, temp, async close() {
+    bridge.diagnostics.flush();
     for (const timer of timers) clearTimeout(timer);
     fs.rmSync(temp, { recursive: true, force: true });
   } };

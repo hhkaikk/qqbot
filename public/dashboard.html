@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light"><title>大肥鱼 · 工作台</title>
+  <link rel="icon" href="data:,"><link rel="stylesheet" href="./dashboard.css"><script src="./dashboard.js" defer></script>
+</head>
+<body>
+<svg class="symbols" aria-hidden="true"><defs>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H7l-5 2 2-5v-5.5a8.5 8.5 0 0 1 17 0Z"/><path d="M8 10h8M8 14h5"/></symbol>
+  <symbol id="i-memory" viewBox="0 0 24 24"><path d="M12 20V5M12 7C10 1 3 3 4 8c-5 3-1 9 2 8 0 5 6 6 6 2M12 7c2-6 9-4 8 1 5 3 1 9-2 8 0 5-6 6-6 2"/><path d="M6 9c3-1 4 2 3 4m9-4c-3-1-4 2-3 4"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 3v17h17M8 15l4-5 4 2 5-7"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24"><path d="M2 12h5l3-8 4 16 3-8h5"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 13 2M18 18a8 8 0 0 1-13-2"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></symbol>
+</defs></svg>
+
+<section id="login" class="login-screen">
+  <div class="login-art"><img class="login-character" src="./dashboard-avatar.jpg" alt="大肥鱼现用的QQ卡通头像"><span>一位有记忆的赛博群友</span></div>
+  <form id="loginForm" class="login-card">
+    <span class="eyebrow">大肥鱼 · 私人工作台</span><h1>它的一天，<br>都在这里。</h1>
+    <p>查看机器人状态、聊天、记忆和用量。输入工作台密码登录。</p>
+    <label for="accessToken">登录密码</label><input id="accessToken" name="accessToken" type="password" minlength="8" maxlength="128" autocomplete="current-password" spellcheck="false" required placeholder="输入工作台密码">
+    <label class="remember"><input id="remember" type="checkbox">记住这台设备</label>
+    <button class="primary" id="loginSubmit" type="submit">登录工作台 <svg><use href="#i-arrow"/></svg></button>
+    <p id="loginError" class="form-error" role="alert"></p>
+    <small>使用你设置的工作台密码。电脑端也可使用项目中的“打开机器人工作台”入口。</small>
+  </form>
+</section>
+
+<div id="app" class="app" hidden>
+  <aside class="sidebar">
+    <a class="brand" href="#overview"><img class="brand-avatar" src="./dashboard-avatar.jpg" alt="大肥鱼头像"><span><strong>大肥鱼</strong><small>我的赛博群友</small></span></a>
+    <div class="nav-label">工作台</div>
+    <nav id="navigation" aria-label="工作台导航">
+      <button data-page="overview" class="nav-item active" aria-label="总览" title="总览"><svg><use href="#i-grid"/></svg><span>总览</span><i></i></button>
+      <button data-page="chats" class="nav-item" aria-label="会话聊天" title="会话聊天"><svg><use href="#i-chat"/></svg><span>会话聊天</span></button>
+      <button data-page="memories" class="nav-item" aria-label="长期记忆" title="长期记忆"><svg><use href="#i-memory"/></svg><span>长期记忆</span></button>
+      <button data-page="usage" class="nav-item" aria-label="Token 用量" title="Token 用量"><svg><use href="#i-chart"/></svg><span>Token 用量</span></button>
+      <button data-page="activity" class="nav-item" aria-label="最近活动" title="最近活动"><svg><use href="#i-activity"/></svg><span>最近活动</span></button>
+    </nav>
+    <div class="sidebar-note"><span class="small-dot"></span>云端持续运行<p>从这里，了解它的一天。</p></div>
+    <div class="sidebar-bottom"><span class="mini-avatar"><img src="./dashboard-avatar.jpg" alt="大肥鱼头像"></span><div><strong>私人管理空间</strong><small>查看运行 · 管理预算</small></div><button id="legacy" class="icon-button" aria-label="原控制台入口" title="原控制台入口"><svg><use href="#i-arrow"/></svg></button></div>
+  </aside>
+  <main>
+    <header class="topbar"><div class="breadcrumb">我的机器人 <span>/</span> <strong id="breadcrumb">总览</strong></div><div class="topbar-actions"><span id="syncBadge" class="sync-badge"><i></i>等待同步</span><button id="refresh" class="secondary"><svg><use href="#i-refresh"/></svg><span>刷新</span></button><button id="lock" class="icon-button" aria-label="锁定工作台" title="锁定工作台"><svg><use href="#i-lock"/></svg></button></div></header>
+    <div class="workspace">
+      <div id="demoBanner" class="notice" hidden>演示数据 · 当前页面用于界面验证，未连接真实 QQ。</div>
+      <div id="staleBanner" class="notice warning" role="status" hidden></div>
+      <div class="page-heading"><div><div class="eyebrow" id="dateLabel"></div><h1 id="pageTitle">总览</h1><p id="pageDescription">连接、对话与记忆，一眼看见。</p></div><span class="private-badge"><svg><use href="#i-lock"/></svg>仅管理员可见</span></div>
+
+      <section data-view="overview">
+        <article class="card operation-summary"><div><span class="eyebrow">今日费用与保护</span><h2 id="budgetHeadline">正在核对当天费用</h2><p id="budgetSummary">按北京时间统计已记录请求，费用为估算。</p></div><button class="secondary" data-go="usage">管理预算 ↗</button><div id="budgetAlerts" class="operation-alerts" aria-live="polite"></div></article>
+        <div class="hero card"><div class="hero-copy"><div class="hero-tag"><span class="small-dot"></span><span id="heroTag">正在读取状态</span></div><h2 id="heroTitle">你好，我是大肥鱼。</h2><p id="heroDescription">群里的热闹，和那些记住的小事。</p><div id="botMeta" class="meta-pills"></div></div><div class="hero-illustration"><div class="character-frame"><img class="hero-avatar" src="./dashboard-avatar.jpg" alt="大肥鱼的卡通形象"></div><span class="fish-caption" id="botAccount">云端群友</span></div></div>
+        <div class="stats-grid" id="stats"><article class="card stat"><div class="stat-label">累计 Token <svg><use href="#i-chart"/></svg></div><strong id="statTokens">—</strong><small id="statTokensHint">读取已记录用量</small></article><article class="card stat"><div class="stat-label">估算费用 <span class="stat-symbol">¥</span></div><strong id="statCost">—</strong><small>已记录累计 · 非账户余额</small></article><article class="card stat"><div class="stat-label">可见会话 <svg><use href="#i-chat"/></svg></div><strong id="statConversations">—</strong><small id="statConversationsHint">群聊与私聊</small></article><article class="card stat"><div class="stat-label">长期记忆 <svg><use href="#i-memory"/></svg></div><strong id="statMemories">—</strong><small>人物印象、话题与待办</small></article></div>
+        <div class="overview-middle"><article class="card chart-card"><div class="section-heading"><div><h2>Token 趋势</h2><p id="chartSubtitle">按已记录请求统计</p></div><div class="segmented period-selector"><button data-hours="24" class="active">24 小时</button><button data-hours="168">7 天</button></div></div><div class="chart-total"><strong id="chartTotal">—</strong><span>Token</span><span id="cachePill" class="soft-pill">缓存命中 —</span></div><div id="overviewChart" class="chart" aria-live="polite"></div><p class="footnote">窗口数据来自逐轮记录；累计用量可能还包含更早的历史。</p></article><article class="card health-card"><div class="section-heading"><h2>连接与服务</h2><span class="soft-pill">实时</span></div><div id="serviceList" class="service-list"></div><div class="health-bottom"><span class="small-dot"></span><span id="healthHint">正在核对连接状态</span></div></article></div>
+        <div class="overview-bottom"><article class="card"><div class="section-heading"><h2>最近聊天</h2><button class="text-button" data-go="chats">查看会话 <span>↗</span></button></div><div id="recentChats" class="preview-list"></div></article><article class="card"><div class="section-heading"><h2>最近动态</h2><button class="text-button" data-go="activity">全部动态 <span>↗</span></button></div><div id="recentActivity" class="timeline compact"></div></article></div>
+      </section>
+
+      <section data-view="chats" hidden>
+        <div class="conversation-workspace card"><aside class="conversation-sidebar"><div class="section-heading"><h2>会话列表</h2><span id="chatCount" class="count">—</span></div><label class="search"><svg><use href="#i-search"/></svg><input id="conversationSearch" type="search" placeholder="搜索会话或 QQ 号" aria-label="搜索会话"></label><div id="conversationList" class="conversation-list"></div></aside><div class="chat-detail"><div class="chat-header"><div><h2 id="chatTitle">选择一个会话</h2><p id="chatHint">查看保留的最近消息预览</p></div><span class="soft-pill">只读</span></div><label class="search chat-search"><svg><use href="#i-search"/></svg><input id="messageSearch" type="search" placeholder="在最近消息中搜索" aria-label="搜索最近聊天"></label><div id="chatMessages" class="chat-messages" aria-live="polite"></div><div class="chat-footer">仅显示桥接缓存的最近消息，长消息可能截断；这里不是完整 QQ 归档。</div></div></div>
+      </section>
+
+      <section data-view="memories" hidden>
+        <div class="memory-toolbar card"><div><label for="memoryConversation">当前会话</label><select id="memoryConversation"></select></div><div class="segmented" id="memoryCategories"><button data-category="all" class="active">全部</button><button data-category="people">人物</button><button data-category="topics">话题</button><button data-category="thoughts">待办</button></div><label class="search"><svg><use href="#i-search"/></svg><input id="memorySearch" type="search" placeholder="搜索记忆" aria-label="搜索长期记忆"></label></div><p class="section-note" id="memoryHint">记忆按会话保存，人物以实际 QQ 身份区分。</p><div id="memoryGrid" class="memory-grid"></div>
+      </section>
+
+      <section data-view="usage" hidden>
+        <article class="card budget-card"><div class="section-heading"><div><h2>主动聊天预算</h2><p id="budgetDay">按北京时间自然日统计</p></div><span id="budgetStatus" class="soft-pill">读取中</span></div><p class="section-note">预算限制新的自动聊天，@、名字唤醒、私聊与管理员唤醒保留；已启动请求可能继续计费。不是官方余额或严格扣费上限。</p>
+          <form id="budgetForm" class="budget-form"><label>每日总预算 <span id="budgetCurrency">CNY</span><input id="budgetDaily" type="number" min="0" max="1000000" step="0.01" placeholder="不设置金额上限"></label><label>会话预算<select id="budgetConversation"><option value="">选择会话（可选）</option></select></label><label>所选会话每日预算<input id="budgetConversationLimit" type="number" min="0" max="1000000" step="0.01" placeholder="不单独限制" disabled></label><label class="budget-toggle"><input id="budgetAnomaly" type="checkbox" checked>自动调用异常时冷却10分钟</label><button id="budgetSave" class="primary" type="submit" disabled>保存策略</button><p id="budgetSaveStatus" class="form-error" role="status"></p></form>
+          <p id="budgetCoverage" class="section-note">仅包含已记录请求，不将无日期的历史累计计入今天。</p><div id="todayConversationCosts" class="today-costs"></div>
+        </article>
+        <div class="usage-summary card"><div><span class="eyebrow">已记录累计</span><h2>每一段对话，都有迹可循。</h2><p>缓存命中也计入 Token；费用按已配置价目表估算，不代表官方账单或余额。</p></div><div><span>累计 Token</span><strong id="usageTotal">—</strong></div><div><span>估算费用</span><strong id="usageCost">—</strong></div></div>
+        <div id="usageBreakdown" class="breakdown-grid"></div><article class="card usage-chart-card"><div class="section-heading"><div><h2>请求用量变化</h2><p>选择窗口查看已记录的逐轮用量</p></div><div class="segmented period-selector"><button data-hours="24" class="active">24 小时</button><button data-hours="168">7 天</button></div></div><div id="usageChart" class="chart"></div></article><article class="card"><div class="section-heading"><h2>会话用量分布</h2><span class="soft-pill">累计 · 跨模型</span></div><div class="table-scroll"><table><thead><tr><th>会话</th><th>Token</th><th>轮次</th><th>请求数</th><th>估算费用</th></tr></thead><tbody id="usageRows"></tbody></table></div><div id="usageEmpty"></div></article>
+      </section>
+
+      <section data-view="activity" hidden>
+        <article class="card diagnostics-card"><div class="section-heading"><div><h2>消息处理诊断</h2><p>收到 → 排队 → 模型与工具 → 网关发送</p></div><span class="soft-pill">真实阶段</span></div><p id="diagnosticNote" class="section-note">从更新后开始记录，缺失阶段显示未知，不根据聊天文本推算。</p><div id="diagnosticTraces" class="diagnostic-traces"></div><h3 class="incident-title">最近服务异常与恢复</h3><div id="diagnosticIncidents" class="diagnostic-incidents"></div></article>
+        <div class="activity-heading"><div class="segmented" id="activityCategories"><button data-activity="messages" class="active">聊天动态</button><button data-activity="system">系统日志</button></div><p id="activityHint">按真实消息时间排序，北京时间显示。</p></div><article class="card activity-card"><div id="activityList" class="timeline"></div></article>
+      </section>
+      <footer class="page-footer"><span><i class="small-dot"></i><span id="updatedAt">等待首次同步</span></span><span>页面可见时更新 · 查看不消耗模型 Token</span></footer>
+    </div>
+  </main>
+</div>
+<div id="toast" class="toast" role="status" hidden></div>
+</body></html>

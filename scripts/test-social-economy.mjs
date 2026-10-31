@@ -5,6 +5,44 @@ import { bridgeHarness } from './audit-bridge-harness.mjs';
 import { unreadPage, beginHostObservation, hostObservationActive } from '../src/social-economy.js';
 import * as policy from '../src/social-economy.js';
 
+test('主动机会不能对八小时前的图片补话，也不擅自删除未读和记忆',async()=>{
+ const h=await bridgeHarness();h.setMode('reserved2');const key='group:456',st=h.getSocialV2State(key);
+ try{
+  st.lastIncomingAt=Date.now()-8*3600000;
+  st.unread=[{seq:1,time:st.lastIncomingAt,text:'[图片]'}];st.recentMessages=[...st.unread];
+  const before=st.wakeConfig.wakeCount;
+  await h.sendWakePromptV2(key,'proactiveCheck');
+  assert.equal(h.calls.prompts.length,0);assert.equal(st.wakeConfig.wakeCount,before);
+  assert.equal(st.unread.length,1);assert.equal(st.recentMessages.length,1);
+ }finally{await h.close();}
+});
+
+test('半小时前的主动机会和显式互动仍能唤醒',async()=>{
+ for(const reason of ['proactiveCheck','atMention','private','admin']){
+  const h=await bridgeHarness();h.setMode('reserved2');const st=h.getSocialV2State('group:456');
+  try{st.lastIncomingAt=Date.now()-(reason==='proactiveCheck'?30*60000:8*3600000);await h.sendWakePromptV2('group:456',reason);assert.equal(h.calls.prompts.length,1,reason);}
+  finally{await h.close();}
+ }
+});
+
+test('离线排队的主动机会在恢复时再次检查时效',async()=>{
+ const h=await bridgeHarness();h.setMode('reserved2');const key='group:456',st=h.getSocialV2State(key);
+ try{
+  st.lastIncomingAt=Date.now()-30*60000;h.setReady(false);await h.sendWakePromptV2(key,'proactiveCheck');
+  st.lastIncomingAt=Date.now()-8*3600000;await h.checkDsh();
+  assert.equal(h.calls.prompts.length,0);assert.equal(h.pendingWakeKeys.has(key),false);
+ }finally{await h.close();}
+});
+
+test('准备模型期间过期的主动机会也不会继续投递',async()=>{
+ const h=await bridgeHarness();h.setMode('reserved2');const key='group:456',st=h.getSocialV2State(key);
+ try{
+  st.lastIncomingAt=Date.now()-30*60000;const original=h.api.sessions.create;
+  h.api.sessions.create=async(...args)=>{const result=await original(...args);st.lastIncomingAt=Date.now()-8*3600000;return result;};
+  await h.sendWakePromptV2(key,'proactiveCheck');assert.equal(h.calls.prompts.length,0);assert.equal(h.pendingWakeKeys.has(key),false);
+ }finally{await h.close();}
+});
+
 async function fixture(run) {
   const h = await bridgeHarness({ config: { socialV2: { economy: { hostObservation: true, followupWindowMs: 30000 },
     proactive: { enabled: false }, sticker: { enabled: false } } } });

@@ -39,6 +39,7 @@ npm ci --ignore-scripts --no-audit --no-fund --fetch-retries=0 --fetch-timeout=2
 node scripts/patch-snowluma-sdk.mjs
 # DSH 需要 peer dependencies；不能沿用桥接项目 .npmrc 的 legacy-peer-deps。
 npm install --prefix "$RUNTIME/dsh" --save-exact "@deepseek-ai/dsh@$DSH_VERSION" --ignore-scripts --legacy-peer-deps=false --no-audit --no-fund --fetch-retries=0 --fetch-timeout=25000
+node scripts/patch-dsh-image-base64.mjs --modules "$RUNTIME/dsh/node_modules"
 
 if [[ ! -e "$APP/config.json" ]]; then
   python3 - "$APP" <<'PY'

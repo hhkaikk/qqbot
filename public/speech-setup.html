@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>大肥鱼 · 音色设置</title>
+<style>
+*{box-sizing:border-box}body{margin:0;padding:24px 16px 60px;background:#f4f7fb;color:#172536;font:15px/1.65 system-ui,sans-serif}main{max-width:620px;margin:auto}h1{font-size:26px;letter-spacing:-.5px}h2{font-size:18px;margin-top:0}section{padding:22px;background:white;border:1px solid #e0e6ef;border-radius:18px;margin:18px 0}p,.muted{color:#58687c}label{display:block;margin:12px 0 5px}input,textarea,button{font:inherit;border-radius:9px}input,textarea{width:100%;padding:10px;border:1px solid #c9d2df;background:white}input[type=file]{padding:8px}button{border:0;padding:10px 14px;margin-top:14px;background:#2966da;color:white;cursor:pointer}button.secondary{background:#e8eef8;color:#23466d}button:disabled{opacity:.5;cursor:wait}#status{font-weight:600}#message{min-height:28px;white-space:pre-wrap;overflow-wrap:anywhere}audio{width:100%;margin-top:16px}.small{font-size:13px}a{color:#245ed0}textarea{resize:vertical}
+</style>
+<main><h1>大肥鱼 · 音色设置</h1>
+<p>使用硅基流动 CosyVoice2 创建参考音色。先保存密钥、上传样本，再试听并启用。上传和试听会请求硅基流动，按平台规则计费；此页面不会向 QQ 发测试消息。</p>
+<div id="status">正在读取配置…</div><button id="refresh" class="secondary">刷新状态</button>
+<section><h2>1 · 保存 API Key</h2>
+<p class="small">密钥仅保存在服务器私有文件中，不回显、不写入模型提示，也不存到浏览器。请勿使用 DeepSeek 的密钥。</p>
+<label for="key">硅基流动 API Key</label><input id="key" type="password" autocomplete="new-password" spellcheck="false" placeholder="粘贴硅基流动的 API Key">
+<button id="save">保存密钥</button></section>
+<section><h2>2 · 上传“曼波”参考音频</h2>
+<p class="small">选择你要的版本，推荐 8–10 秒、单人说话、无背景音乐的 MP3；支持 3–30 秒、最大 512KB。账号需已实名认证。</p>
+<label for="clip">参考 MP3</label><input id="clip" type="file" accept="audio/mpeg,.mp3">
+<label for="transcript">音频里实际说出的台词</label><textarea id="transcript" rows="3" maxlength="2000" placeholder="逐字填写参考音频的台词；日语音频请填对应日语"></textarea>
+<button id="upload">创建参考音色（云端请求）</button></section>
+<section><h2>3 · 试听并启用</h2>
+<label for="voice">自定义音色 ID</label><input id="voice" type="text" autocomplete="off" spellcheck="false" placeholder="上传成功后自动填入；也可填写已有 speech: 音色 ID">
+<label for="sample">试听文字</label><textarea id="sample" maxlength="80" rows="2">我在呀，我是大肥鱼。今天也要开开心心的哦。</textarea>
+<button id="activate">合成试听并启用（按量计费）</button>
+<audio id="preview" controls hidden></audio>
+<p class="small">只有试听音频生成并校验成功才切换服务。失败后请先刷新状态，避免重复付费请求。</p>
+<button id="restore" class="secondary">恢复之前的晓伊音色</button></section>
+<div id="message" role="status" aria-live="polite"></div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const params=new URLSearchParams(location.search);const initialToken=params.get('token');
+if(initialToken){localStorage.setItem('consoleToken',initialToken);history.replaceState(null,'',location.pathname);}
+async function request(action,body){
+ const response=await fetch('/api/voice/provider'+(action?'/'+action:''),{method:body?'POST':'GET',headers:{'x-console-token':localStorage.getItem('consoleToken')||'',...(body?{'content-type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(45000)});
+ const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error||'请求未完成');return data;
+}
+function show(data){$('status').textContent='当前服务：'+(data.provider==='siliconflow'?'硅基流动':'Edge · 晓伊')+'；硅基密钥：'+(data.keyConfigured?'已保存':'未填写');if(!$('voice').value)$('voice').value=data.candidateVoice||data.voice||'';}
+async function action(fn){for(const b of document.querySelectorAll('button'))b.disabled=true;$('message').textContent='正在处理，请勿重复提交…';try{await fn();}catch(e){$('message').textContent=(e.name==='TimeoutError'?'请求等待超时，请刷新状态确认，避免重复付费请求。':e.message);}finally{for(const b of document.querySelectorAll('button'))b.disabled=false;}}
+$('refresh').onclick=()=>action(async()=>{show(await request(''));$('message').textContent='配置状态已刷新。';});
+$('save').onclick=()=>action(async()=>{const key=$('key').value.trim();try{show(await request('key',{apiKey:key}));$('message').textContent='密钥已保存，尚未进行云端验证。继续上传参考音频。';}finally{$('key').value='';}});
+$('upload').onclick=()=>action(async()=>{
+ const file=$('clip').files[0];if(!file||!file.name.toLowerCase().endsWith('.mp3')||file.size>512*1024)throw new Error('请选择不超过512KB的MP3文件');
+ const text=$('transcript').value.trim();if(!text)throw new Error('请先填写参考音频的准确台词');
+ const audio=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve('data:audio/mpeg;base64,'+String(r.result).split(',')[1]);r.onerror=reject;r.readAsDataURL(file);});
+ const data=await request('reference',{audio,text});$('voice').value=data.voice;$('message').textContent='音色已创建，请试听并启用。';
+});
+$('activate').onclick=()=>action(async()=>{const data=await request('activate',{voice:$('voice').value.trim(),text:$('sample').value.trim()});show(data);$('preview').src=data.audio;$('preview').hidden=false;$('message').textContent='试听已生成，并已启用这个音色。点击播放试听。';});
+$('restore').onclick=()=>action(async()=>{show(await request('restore',{}));$('message').textContent='已恢复之前的 Edge 音色。';});
+request('').then(show).catch(e=>$('message').textContent=e.message);
+</script></html>

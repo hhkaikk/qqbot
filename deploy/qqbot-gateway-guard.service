@@ -1,0 +1,33 @@
+[Unit]
+Description=QQ gateway bounded login recovery
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/python3 -I /usr/local/libexec/qqbot-gateway-guard.py
+TimeoutStartSec=240
+UMask=0077
+StateDirectory=qqbot-gateway-guard
+StateDirectoryMode=0700
+RuntimeDirectory=qqbot-gateway-guard
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+IPAddressDeny=any
+IPAddressAllow=localhost
+MemoryMax=64M
+CPUQuota=15%

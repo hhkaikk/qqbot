@@ -22,7 +22,8 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/opt/qqbot
-MemoryHigh=500M
+# 留出 V8 堆外内存与子进程空间，避免在正常峰值时反复直接回收。
+MemoryHigh=600M
 MemoryMax=650M
 
 [Install]

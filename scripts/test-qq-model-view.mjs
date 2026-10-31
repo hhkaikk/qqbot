@@ -153,7 +153,7 @@ test('MCP validates/forwards read watermarks and wait purposes against an isolat
     // live config or user runtime state are copied into this test fixture.
     fixture = await fs.mkdtemp(path.join(ROOT, '.tmp-model-view-test-'));
     await fs.mkdir(path.join(fixture, 'src'));
-    await Promise.all(['mcp-snowluma-safe.js', 'qq-model-view.js', 'sensitive.js'].map((name) =>
+    await Promise.all(['mcp-snowluma-safe.js', 'qq-model-view.js', 'sensitive.js', 'image-tool-result.js'].map((name) =>
       fs.copyFile(path.join(ROOT, 'src', name), path.join(fixture, 'src', name))));
     await fs.writeFile(path.join(fixture, 'config.json'), JSON.stringify({ consolePort: api.address().port,
       socialV2: { economy: { hostObservation: true } } }));
@@ -175,6 +175,16 @@ test('MCP validates/forwards read watermarks and wait purposes against an isolat
     assert.deepEqual(waitSchema.properties.purpose.enum, ['messages', 'reply']);
     assert.equal(waitSchema.required.includes('purpose'), false);
     const common = { key: 'group:123', token: 'fixture-token' };
+    const imageSchema = listed.tools.find(t => t.name === 'qq_get_message_images').inputSchema;
+    assert.equal(imageSchema.properties.imageIndices.items.minimum, 1);
+    await client.callTool({ name: 'qq_get_message_images', arguments: {...common, messageId:'1234', imageIndices:[2,4]} });
+    assert.equal(new URL(requests.at(-1).url, 'http://fixture').searchParams.get('indices'), '2,4');
+    assert.equal(requests.at(-1).token, common.token);
+    for (const imageIndices of [[],[0],[1.2],['2'],Array(9).fill(1)]) {
+      const before=requests.length;
+      const invalid=await client.callTool({ name:'qq_get_message_images', arguments:{...common,messageId:'1234',imageIndices} });
+      assert.equal(invalid.isError,true);assert.equal(requests.length,before);
+    }
     const appendSchema = listed.tools.find(t => t.name === 'qq_memory_append').inputSchema;
     assert.equal(appendSchema.properties.extra.properties.userId.type,'string');
     assert.equal(listed.tools.find(t=>t.name==='qq_memory_remove').inputSchema.properties.userId.type,'string');

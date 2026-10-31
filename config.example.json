@@ -219,6 +219,13 @@
     },
     "voice": {
       "enabled": false,
+      "transcribe": false,
+      "dynamicText": false,
+      "provider": "edge",
+      "siliconflowVoice": "",
+      "pythonPath": "python",
+      "voiceName": "zh-CN-XiaoxiaoNeural",
+      "maxChars": 300,
       "dir": "audio",
       "maxSeconds": 300,
       "maxBytes": 20971520,

@@ -5,8 +5,9 @@ services:
     container_name: qqbot-napcat
     hostname: qqbot-gateway
     restart: unless-stopped
+    entrypoint: ["bash", "/run/qqbot-diagnostics-entrypoint.sh"]
     environment:
-      ACCOUNT: "${QQ_BOT_ACCOUNT:?请设置 QQ_BOT_ACCOUNT 为专用机器人账号}"
+      ACCOUNT: "${QQBOT_ACCOUNT:?请通过 install-napcat.sh 设置机器人账号}"
       NAPCAT_UID: "${NAPCAT_UID:?请通过 install-napcat.sh 启动}"
       NAPCAT_GID: "${NAPCAT_GID:?请通过 install-napcat.sh 启动}"
     ports:
@@ -14,6 +15,18 @@ services:
       - "127.0.0.1:13000:3000"
       - "127.0.0.1:13001:3001"
     volumes:
+      - type: bind
+        source: /usr/local/share/qqbot-gateway-runtime/entrypoint.sh
+        target: /run/qqbot-diagnostics-entrypoint.sh
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /usr/local/share/qqbot-gateway-runtime/napcat.mjs
+        target: /app/napcat/napcat.mjs
+        read_only: true
+        bind:
+          create_host_path: false
       - /opt/qqbot/gateway/qq:/app/.config/QQ
       - /opt/qqbot/gateway/config:/app/napcat/config
       - /opt/qqbot/gateway/plugins:/app/napcat/plugins

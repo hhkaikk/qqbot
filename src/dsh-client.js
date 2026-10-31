@@ -303,6 +303,9 @@ export class NodeApiClient extends AbstractApiClient {
     this.cookiePromise = null;
     this._authEpoch = 0;
     this._muxSendOpen = null;
+    // HTTP 可用不代表 Remote 事件源已就绪；只认 $events 的 ready 帧。
+    this.eventStreamReady = false;
+    this._eventMuxOwner = null;
     // 持久化签名密钥的探测缓存：undefined=未探测，null=不可用，Buffer=可用。
     // 只缓存成功结果；首次部署时桥接可能早于 DSH 生成凭据，不能永久缓存缺失。
     this._secret = undefined;
@@ -687,6 +690,9 @@ export class NodeApiClient extends AbstractApiClient {
     sig.throwIfAborted();
     await this.ensureAuth(sig);
     sig.throwIfAborted();
+    const owner = Symbol('remote.mux');
+    this._eventMuxOwner = owner;
+    this.eventStreamReady = false;
     const url = new URL('/api/remote.mux', this.baseUrl);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
     const socket = new WebSocket(url, { headers: { cookie: this.cookie } });
@@ -696,6 +702,8 @@ export class NodeApiClient extends AbstractApiClient {
     let eventStreamId = null;
     let eventClientId = null;
     let ended = false;
+    let sourceReady = false;
+    let handshakeTimer;
     const followed = new Set();
     const streamToSession = new Map();
     const sessionToStream = new Map();
@@ -707,9 +715,14 @@ export class NodeApiClient extends AbstractApiClient {
     const endStream = () => {
       if (ended) return;
       ended = true;
+      clearTimeout(handshakeTimer);
       if (this._muxSendOpen === sendOpen) this._muxSendOpen = null;
       // 连接断开（含鉴权失败/DSH 重启）时丢弃旧 Cookie，重连会重新 token exchange。
-      if (!sig.aborted) this.invalidateAuth();
+      if (this._eventMuxOwner === owner) {
+        this.eventStreamReady = false;
+        this._eventMuxOwner = null;
+        if (!sig.aborted) this.invalidateAuth();
+      }
       enqueue({ kind: 'end' });
     };
     const sendOpen = (sessionId) => {
@@ -762,13 +775,14 @@ export class NodeApiClient extends AbstractApiClient {
     };
     const handleOpen = () => {
       if (ended || sig.aborted) return;
+      // 先建的连接可能更晚才 open，不能覆盖新连接的 follow 发送入口。
+      if (this._eventMuxOwner !== owner) { endStream(); return; }
       socketOpen = true;
       this._muxSendOpen = sendOpen;
       // 重放**全部**期望 follow（跨重连保留），而不只是本次连接排队的那些。
       // 少了这一步，DSH 一重启，所有已存在的 QQ 会话就会静默失联。
       for (const sid of this._desiredFollows) sendOpen(sid);
       sendOpenEvents();
-      if (!ended) onOpen?.();
     };
     const handleMessage = (event) => {
       let msg;
@@ -785,8 +799,16 @@ export class NodeApiClient extends AbstractApiClient {
       if (msg.type === 'item') {
         if (isEventStream && msg.value) {
           const value = msg.value;
-          if (value.type === 'ready') {
+          if (value.type === 'ready' && typeof value.clientId === 'string' && value.clientId) {
             eventClientId = value.clientId;
+            clearTimeout(handshakeTimer);
+            if (!sourceReady && !ended) {
+              sourceReady = true;
+              if (this._eventMuxOwner === owner) {
+                this.eventStreamReady = true;
+                onOpen?.();
+              }
+            }
           } else if (value.type === 'waterfall' && eventClientId) {
             if (value.event === 'approval/request') {
               enqueue({
@@ -898,6 +920,17 @@ export class NodeApiClient extends AbstractApiClient {
     socket.addEventListener('close', handleClose, { once: true });
     socket.addEventListener('error', handleError, { once: true });
     sig.addEventListener('abort', handleAbort, { once: true });
+    // 连接可能永远不触发 open/error/close，也可能 open 后事件源始终无 ready。
+    // 只有握手受限；ready 后群里长时间无人说话是正常状态，不能按静默重连。
+    const handshakeMs = Math.max(10, Math.min(30000, Number(this.timeoutMs) || 15000));
+    handshakeTimer = setTimeout(() => {
+      if (ended || sourceReady) return;
+      enqueue({ kind: 'frame', envelope: { payload: { type: 'stream/error', error: {
+        code: 'DSH_EVENT_HANDSHAKE_TIMEOUT', message: 'DSH 事件通道握手超时，等待重连'
+      } } } });
+      endStream();
+    }, handshakeMs);
+    handshakeTimer.unref?.();
     if (sig.aborted) handleAbort();
     try {
       while (true) {
@@ -909,6 +942,7 @@ export class NodeApiClient extends AbstractApiClient {
         await new Promise((resolve) => { wake = resolve; });
       }
     } finally {
+      clearTimeout(handshakeTimer);
       if (this._muxSendOpen === sendOpen) this._muxSendOpen = null;
       sig.removeEventListener('abort', handleAbort);
       socket.removeEventListener('open', handleOpen);

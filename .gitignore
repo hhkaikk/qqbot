@@ -67,14 +67,17 @@ docs/guides/VOICE.md
 audio/
 
 
-# 个人部署记录、登录与凭据文件
+# 私有配置、聊天和本机发布材料
+.codex-remote-attachments/
+__pycache__/
+*.py[cod]
 /docs/部署记录.md
 /docs/结构评估.md
 /docs/superpowers/
 /scripts/open-panels.ps1
-/打开DSH设置.cmd
-/打开QQ登录.cmd
-/打开控制台.cmd
+/打开*.cmd
+/文件导航.md
+/innerWidth*
 .env
 .env.*
 !.env.example
@@ -87,7 +90,6 @@ audio/
 *.db
 *.session
 *.har
-*.log
 credentials*
 .credentials*
 cookies*

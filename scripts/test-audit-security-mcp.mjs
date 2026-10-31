@@ -5,6 +5,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { test } from 'node:test';
 import { z } from 'zod';
+import { messageImageResult } from '../src/image-tool-result.js';
 
 function loadWebTools({ safeFetch, webSearch }) {
   const tools = new Map();
@@ -113,6 +114,7 @@ function loadSnowlumaTools(fetchImpl, fixtureConfig = null, httpImpl = null) {
     fs: fixtureFs,
     SENSITIVE_RE: { test: () => false },
     serializeModelData: (value) => JSON.stringify(value),
+    messageImageResult,
   });
   return async (name, arguments_ = {}) => {
     const tool = tools.get(name);

@@ -1,16 +1,31 @@
 # 大肥鱼 QQ 群友
 
-基于 qq-bridge 的自用维护版，支持 DeepSeek Harness、OneBot/NapCat、表情、服务器状态图、稳定成员记忆和明确引用归属。来源与修改范围见 [UPSTREAM.md](UPSTREAM.md)。
+基于 [qq-bridge](https://github.com/Derpyu520/qq-bridge) 的维护版，使用 DeepSeek Harness 与 OneBot/NapCat 接入 QQ。来源与版权见 [UPSTREAM.md](UPSTREAM.md)。
 
-首次使用复制 `config.example.json` 为 `config.json`，自行填写本地连接与白名单；在 DSH 页面填写模型密钥。所有真实凭据、配置与运行数据留在本机，不提交 Git。
+支持网页工作台、成员记忆与引用识别、Token 账本、自动聊天预算、消息处理诊断、图片识别、表情和语音服务。工作台采用原生 HTML/CSS/JavaScript，业务后端为 Node.js。结构说明见 [项目结构与消息链路](docs/guides/项目结构与消息链路.md)。
 
-Linux 部署模板见 `deploy/`。使用 NapCat 模板前设置 `QQ_BOT_ACCOUNT` 和 `QQ_OWNER_ACCOUNT`，再执行 `deploy/install-napcat.sh`；需预先安装 Docker，并自行完成 QQ 登录。管理员端口只绑定回环地址。
+## 配置与部署
 
-当前 `npm run test:audit` 的已知环境缺口：独立语音工具/VOICE.md 未包含，本机 DSH 工具清单测试需安装对应 DSH 环境；不能将其描述为全套测试已通过。
+1. 使用 Node.js 22.13 或更高版本，执行 npm ci；复制 config.example.json 为 config.json。
+2. 自行配置 DSH、OneBot 地址和白名单，在 DSH 的模型设置中填写自己的 API Key。
+3. Linux 模板位于 deploy/。部署 NapCat 前，在 config.json 中填写 snowluma.accountId 和 ownerQQ，预先安装 Docker，并自行完成 QQ 登录。
+4. 网关、DSH 和管理服务保持回环监听。HTTPS 工作台需要配置 Nginx 和 dashboard.publicOrigin；参见工作台与运行保护指南。
+
+语音是可选功能：Edge 合成后端需要 Python 的 `edge-tts` 包，音频处理需要 ffmpeg。Linux 上若只有 `python3`，请将 `socialV2.voice.pythonPath` 配置为可用的 Python 路径。使用硅基流动后端需在音色设置页配置自己的 Key；仓库不含现成密钥或克隆音色。
+
+网关守护器默认不会保存密码。自动密码回退需管理员单独配置 systemd 加密凭据与 `LoadCredentialEncrypted`；仅运行安装脚本不代表已启用密码回退。
+
+仓库只包含脱敏源码，账号示例均为占位值。配置、API Key、QQ 登录态、聊天、记忆与音频数据不进入 Git。不要直接复用任何示例账号，也不要在公网暴露 QQ 登录面板。
+
+## 测试
+
+离线回归入口为 npm run test:audit；测试前准备 Python 3，部分音频测试需要 ffmpeg。真实模型/QQ 测试是单独的显式脚本，可能产生费用或发送消息，不纳入离线入口。
+
+本仓库不包含独立 voice-tool 与完整 DSH 安装环境；涉及外部组件和文档的检查可能需要额外环境。验证结果以本次提交说明为准，不把部分通过描述成全套通过。
 
 ---
 
-以下保留上游项目说明，部分默认配置与本维护版可能不同，请以源码和 `config.example.json` 为准。
+以下保留上游说明；部分默认配置可能不同，请以当前源码与配置模板为准。
 
 # QQ ↔ DeepSeek Harness 桥接
 
@@ -288,7 +303,7 @@ qq-bridge/
   state/                # 运行时数据（不入库）
 ```
 
-> 🎤 **独立的「发语音」工具不在这里**：它是仓库上一级的 [`../voice-tool/`](../voice-tool/)（`voice-cli.mjs` /
+> 🎤 **独立的「发语音」工具不在这里**：它是仓库上一级的 `../voice-tool/`（未随公开源码提供）（`voice-cli.mjs` /
 > `voice-gui.mjs` / `public/voice.html` / `发语音.cmd`）。图形界面双击上一级的「发语音-图形界面.cmd」。
 > 它只依赖 SnowLuma，共享内核仍由本仓库 `src/voice-core.js` / `src/snowluma-conn.js` 提供（单一实现）。
 >

@@ -113,6 +113,9 @@ export function createTokenLedger({
   const baselines = new Map();
   /** sampleKey -> 采样记录 */
   const samples = new Map();
+  // 每个保留采样记录attempt→最终结算覆盖的seq范围；重放时retry轴可能已移步。
+  // 按session/turn/step分组，索引大小随samples有界，不丢真实的另一次重试。
+  const sampleSequences = new Map();
   /** sessionId -> { turn, step, retry, seq }：重试轴，用于区分同一步骤的多次计费请求 */
   const retryAxis = new Map();
   /** sessionId -> 最近一次见到的会话 key（会话退役后仍可归属到原 QQ 会话） */
@@ -127,6 +130,24 @@ export function createTokenLedger({
   let lastIngestAt = 0;
   let lastCompactedAt = 0;
   let droppedLines = 0;
+  let readFailed = false;
+
+  const sequenceGroup = (sid, turn, step) => sampleKeyOf(sid, turn, step, 'range');
+  function hasSampleSequence(sid, seq, turn, step) {
+    if (seq < 0) return false;
+    const group = sampleSequences.get(sequenceGroup(sid, turn, step));
+    return group ? [...group.values()].some(s => s.firstSeq <= seq && seq <= s.seq) : false;
+  }
+  function putSample(key, sample) {
+    const previous = samples.get(key);
+    const start = Number.isSafeInteger(sample.firstSeq) && sample.firstSeq >= 0 && sample.firstSeq <= sample.seq ? sample.firstSeq : sample.seq;
+    sample.firstSeq = previous?.firstSeq >= 0 ? Math.min(previous.firstSeq, start) : start;
+    samples.set(key, sample);
+    const groupKey = sequenceGroup(sample.sessionId, sample.turn, sample.step);
+    const group = sampleSequences.get(groupKey) ?? new Map();
+    group.set(key, sample);sampleSequences.set(groupKey, group);
+    return sample;
+  }
 
   function keyOf(sessionId) {
     let key;
@@ -167,7 +188,8 @@ export function createTokenLedger({
         },
         estimated: record.estimated === true,
         dropped: Number(record.dropped) || 0,
-        maxSeq: Number.isFinite(Number(record.maxSeq)) ? Number(record.maxSeq) : -1
+        maxSeq: Number.isFinite(Number(record.maxSeq)) ? Number(record.maxSeq) : -1,
+        maxTime: Number.isFinite(record.maxTime) ? record.maxTime : null
       });
       if (t > (sessionSeen.get(sid) ?? 0)) sessionSeen.set(sid, t);
       return true;
@@ -194,16 +216,23 @@ export function createTokenLedger({
       const step = Number(record.step);
       const retry = Number.isFinite(Number(record.retry)) ? Number(record.retry) : 0;
       if (!Number.isFinite(turn) || !Number.isFinite(step)) return false;
+      if (hasSampleSequence(sid, seq, turn, step)) return false;
       const sk = sampleKeyOf(sid, turn, step, retry);
       const prev = samples.get(sk);
       // 幂等关键：只有 seq **严格更新**才允许覆盖。
       // 相等 seq 只可能是同一条事件的重放（重连时 snapshot 会重发），
       // 若放行「相等 seq 覆盖」，旧快照就能把新数据改小 —— 花费会凭空缩水。
-      if (prev && seq >= 0 && prev.seq >= seq) return false;
-      samples.set(sk, {
+      if (prev && seq >= 0 && prev.seq >= seq) {
+        // 旧版日志可能按不同顺序落盘；同一明确retry采样仍须记住更早attempt。
+        prev.firstSeq = Math.min(prev.firstSeq, seq);
+        return false;
+      }
+      putSample(sk, {
         sessionId: sid,
         key: record.key,
         seq,
+        firstSeq: record.firstSeq,
+        timeKnown: record.timeKnown !== false && record.t != null && Number.isFinite(Number(record.t)),
         t,
         turn,
         step,
@@ -223,6 +252,7 @@ export function createTokenLedger({
   function load() {
     baselines.clear();
     samples.clear();
+    sampleSequences.clear();
     retryAxis.clear();
     sessionKeys.clear();
     sessionSeen.clear();
@@ -231,8 +261,9 @@ export function createTokenLedger({
     let raw;
     try {
       raw = fs.readFileSync(file, 'utf8');
-    } catch {
-      return; // 首次运行：文件还不存在
+    } catch (error) {
+      readFailed=error.code!=='ENOENT';
+      return; // 仅ENOENT是首次运行，其他读失败不能冒充空账本。
     }
     const lines = raw.split('\n');
     for (const line of lines) {
@@ -280,7 +311,7 @@ export function createTokenLedger({
     }
     for (const s of samples.values()) {
       out.push({
-        k: 'turn', t: s.t, sid: s.sessionId, key: s.key, seq: s.seq,
+        k: 'turn', t: s.t, timeKnown:s.timeKnown, sid: s.sessionId, key: s.key, seq: s.seq, firstSeq: s.firstSeq,
         turn: s.turn, step: s.step, retry: s.retry,
         model: s.model, provider: s.provider, b: s.buckets
       });
@@ -289,7 +320,7 @@ export function createTokenLedger({
       out.push({
         k: 'evict', t: sessionSeen.get(e.sessionId) ?? 0, sid: e.sessionId, key: e.key,
         b: e.buckets, cost: e.cost, peak: e.byTier.peak, off: e.byTier.off,
-        estimated: e.estimated, dropped: e.dropped, maxSeq: Number(e.maxSeq) >= 0 ? Number(e.maxSeq) : -1
+        estimated: e.estimated, dropped: e.dropped, maxSeq: Number(e.maxSeq) >= 0 ? Number(e.maxSeq) : -1,maxTime:e.maxTime
       });
     }
     try {
@@ -325,6 +356,9 @@ export function createTokenLedger({
     for (let i = 0; i < overflow; i += 1) {
       const [sampleId, sample] = ordered[i];
       samples.delete(sampleId);
+      const groupKey = sequenceGroup(sample.sessionId, sample.turn, sample.step);
+      const group = sampleSequences.get(groupKey);
+      group?.delete(sampleId);if (group?.size === 0) sampleSequences.delete(groupKey);
       const acc = evicted.get(sample.sessionId) ?? {
         sessionId: sample.sessionId,
         key: sample.key,
@@ -335,7 +369,8 @@ export function createTokenLedger({
         dropped: 0,
         // 被淘汰采样里最大的 seq：一旦更新的投影基线覆盖到它，这些桶就已经包含在
         // 基线里了，再相加就是重复计费（见 evictionCovered()）。
-        maxSeq: -1
+        maxSeq: -1,
+        maxTime: 0
       };
       acc.buckets = addBuckets(acc.buckets, sample.buckets);
       const sampleSeq = Number(sample.seq);
@@ -347,6 +382,7 @@ export function createTokenLedger({
       acc.byTier[p.rates.tier] += p.cost.total;
       acc.estimated ||= p.rates.estimated;
       acc.dropped += 1;
+      acc.maxTime=acc.maxTime===null||sample.timeKnown===false?null:Math.max(acc.maxTime||0,sample.t);
       if (sample.key) acc.key = sample.key;
       evicted.set(sample.sessionId, acc);
       evictedDirty = true;
@@ -396,6 +432,7 @@ export function createTokenLedger({
     // 取不到才回落到「收到时间」，避免机器时钟/重放顺序影响计价。
     const t = Number.isFinite(Number(at)) ? Number(at)
       : (Number.isFinite(Number(event.time)) ? Number(event.time) : now());
+    const timeKnown=origin!=='snapshot'||(at!=null&&Number.isFinite(Number(at)))||(event.time!=null&&Number.isFinite(Number(event.time)));
     const seq = Number.isFinite(Number(event.seq)) ? Number(event.seq) : -1;
     const eventModel = model ?? event.data?.model ?? event.data?.usage?.model;
     const eventProvider = provider ?? event.data?.provider;
@@ -417,6 +454,7 @@ export function createTokenLedger({
     const turn = Number(event.data?.turn);
     const step = Number(event.data?.step);
     if (!Number.isFinite(turn) || !Number.isFinite(step)) return false;
+    if (hasSampleSequence(sessionId, seq, turn, step)) return false;
     const axis = retryAxis.get(sessionId);
     const retry = axis && axis.turn === turn && axis.step === step ? axis.retry : 0;
     const buckets = normalizeUsage(raw);
@@ -428,16 +466,17 @@ export function createTokenLedger({
     if (prev && seq >= 0 && prev.seq >= seq) return false;
 
     const record = {
-      k: 'turn', t, sid: sessionId, key, seq,
+      k: 'turn', t, timeKnown, sid: sessionId, key, seq,
       turn, step, retry,
       model: eventModel ?? prev?.model,
       provider: eventProvider ?? prev?.provider,
       b: buckets
     };
-    samples.set(sk, {
-      sessionId, key, seq, t, turn, step, retry,
+    const sample = putSample(sk, {
+      sessionId, key, seq, t, timeKnown, turn, step, retry,
       model: record.model, provider: record.provider, buckets
     });
+    record.firstSeq = sample.firstSeq;
     if (t > (sessionSeen.get(sessionId) ?? 0)) sessionSeen.set(sessionId, t);
     lastIngestAt = now();
     appendLine(record);
@@ -874,6 +913,32 @@ export function createTokenLedger({
     };
   }
 
+  /** 精确半开时间窗口；只有逐请求采样具有日期，不分摊累计基线/淘汰汇总。 */
+  function period({ from, to } = {}) {
+    if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to) throw new Error('无效用量时间窗口');
+    // 旧淘汰汇总没有日期分布，不能用剩余采样的较小数值假报完整费用。
+    if(readFailed||[...evicted.values()].some(e=>e.maxTime==null||e.maxTime>=from))return {available:false,from,to,currency:priceTable.currency,symbol:priceTable.symbol,cost:null,steps:null,buckets:null,conversations:[],coverage:'unavailable',note:readFailed?'用量账本读取失败，费用暂不可核对。':'本时间窗口可能缺少已淘汰请求，费用暂不可核对；不以缩水金额执行预算。'};
+    const conversations = new Map();
+    const total = { cost: 0, steps: 0, buckets: { ...ZERO_BUCKETS } };
+    let estimated = false;
+    for (const s of samples.values()) {
+      if (s.timeKnown===false || !Number.isFinite(s.t) || s.t < from || s.t >= to) continue;
+      const p = priceUsage(s.buckets, { model: s.model, at: s.t, table: priceTable });
+      const key = keyOf(s.sessionId) ?? s.key ?? null;
+      if (!conversations.has(key)) conversations.set(key, { key, cost: 0, steps: 0, buckets: { ...ZERO_BUCKETS } });
+      for (const target of [total, conversations.get(key)]) {
+        target.cost += p.cost.total; target.steps++;
+        target.buckets = addBuckets(target.buckets, s.buckets);
+      }
+      estimated ||= p.rates.estimated;
+    }
+    return { available: true, from, to, currency: priceTable.currency, symbol: priceTable.symbol,
+      ...total, estimated, coverage: 'recorded_requests_only',
+      note: '仅包含本窗口已记录的计费请求；没有逐时归属的历史累计不计入，尚未结算的请求可能未计入。',
+      conversations: [...conversations.values()].sort((a,b) => b.cost-a.cost),
+    };
+  }
+
   /** 最近采样流水（实时观察用，按时间倒序）。 */
   function recent(limit = 50) {
     const n = Math.max(1, Math.min(500, Number(limit) || 50));
@@ -918,6 +983,7 @@ export function createTokenLedger({
   function reset() {
     baselines.clear();
     samples.clear();
+    sampleSequences.clear();
     retryAxis.clear();
     sessionKeys.clear();
     sessionSeen.clear();
@@ -937,6 +1003,7 @@ export function createTokenLedger({
       log('token 账本：重置失败', error?.message ?? error);
     }
     lastIngestAt = 0;
+    readFailed=false;
   }
 
   load();
@@ -947,6 +1014,7 @@ export function createTokenLedger({
     ingestSnapshotRecords,
     summary,
     conversation,
+    period,
     series,
     recent,
     stats,

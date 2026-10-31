@@ -15,11 +15,11 @@ try {
   const [login, status, groups, friends] = await Promise.all([
     call('get_login_info'), call('get_status'), call('get_group_list'), call('get_friend_list'),
   ]);
-  const expected = process.argv[2];
+  const expected = process.argv[2] || cfg.snowluma.accountId;
   const targetGroup = process.argv[3];
   console.log(JSON.stringify({
     userId: String(login.user_id), nickname: login.nickname,
-    expectedAccountMatches: expected ? String(login.user_id) === expected : null,
+    expectedAccountMatches: expected ? String(login.user_id) === String(expected) : null,
     online: status.online, good: status.good,
     adminIsFriend: friends.some((friend) => String(friend.user_id) === String(cfg.ownerQQ)),
     groupCount: groups.length,
@@ -27,7 +27,8 @@ try {
     groups: groups.filter((group) => !targetGroup || String(group.group_id) === targetGroup)
       .map((group) => ({ groupId: String(group.group_id), name: group.group_name, memberCount: group.member_count })),
   }, null, 2));
-  if (expected && String(login.user_id) !== expected) process.exitCode = 1;
+  if (status.online !== true || status.good !== true
+    || (expected && String(login.user_id) !== String(expected))) process.exitCode = 1;
 } catch (error) {
   console.error(String(error?.message ?? error).replace(/sk-[A-Za-z0-9_-]+/g, '[已隐藏]'));
   process.exitCode = 1;

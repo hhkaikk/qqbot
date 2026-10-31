@@ -1,6 +1,20 @@
 // 消息展示收据与宿主观察策略；不执行模型调用、不创建轮询或定时唤醒。
 export const hostObservationEnabled = cfg => cfg?.socialV2?.economy?.hostObservation === true;
 
+export function explicitWakeAllowed(cfg, reason) {
+  return cfg?.socialV2?.wake?.directOnly !== true
+    || ['private', 'atMention', 'nameMention', 'bootstrap', 'admin'].includes(reason);
+}
+
+// 主动检查通常间隔 30~90 分钟；超过两小时的沉寂不再用于自动补话。
+// 这是主动机会的期限，不删除消息，也不影响显式互动或管理员唤醒。
+export function proactiveContextFresh(st, now = Date.now()) {
+  const incoming = Number(st?.lastIncomingAt);
+  const age = now - incoming;
+  return Number.isFinite(now) && Number.isFinite(incoming) && incoming > 0
+    && age >= 0 && age <= 2 * 60 * 60 * 1000;
+}
+
 export function unreadPage(st, { limit, afterSeq = null, unseenOnly = false }) {
   const all = Array.isArray(st.unread) ? st.unread : [];
   const unseen = all.filter(m => !Number.isSafeInteger(m.seq) || !st.modelSeenSeqs?.has(m.seq));
