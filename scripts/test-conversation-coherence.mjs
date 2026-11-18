@@ -43,6 +43,26 @@ test('唤醒与可刷新的上下文都要求先理解当前话题，再开相�
   }
 });
 
+test('最近消息摘要遇到截断边界上的表情或生僻字时仍是合法 Unicode', async () => {
+  const h = await bridgeHarness();
+  try {
+    h.setMode('reserved2');
+    const key = 'group:456';
+    const prefix = '字'.repeat(29);
+    for (const [index, char] of ['🐟', '𠮷'].entries()) {
+      const message = `${prefix}${char}还有后文`;
+      h.appendSocialV2Message(key, '群友', message, message, false, false, String(index + 1));
+      const prompt = h.buildWakePromptV2(key, 'atMention');
+      const status = prompt.split('\n').find(line => line.startsWith('【此刻状态】'));
+      assert.ok(status?.includes(`最近一条来自 群友：${prefix}`));
+      assert.ok(status.isWellFormed(), '摘要不可含有被截断的半个字符');
+      assert.ok(!status.includes('还有后文'), '摘要仍须保持长度限制');
+    }
+  } finally {
+    await h.close();
+  }
+});
+
 test('生成的实际安装 patch 与源保持相同的连贯规则', () => {
   const patch = fs.readFileSync(new URL('../plugins/qq-agent-presets/presets/qq-chat-v2.patch.yml', import.meta.url), 'utf8');
   assert.ok(patch.includes('【连贯优先】'));

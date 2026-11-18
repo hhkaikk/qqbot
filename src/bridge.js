@@ -10233,7 +10233,7 @@ async function main() {
     const lastAiMin = st.lastAiReplyAt ? Math.max(0, Math.round((Date.now() - Number(st.lastAiReplyAt)) / 60000)) : null;
     const statusBits = [`未读 ${(st.unread || []).length} 条`];
     if (Number(st.lastIncomingAt) > 0) statusBits.push(`最近群友消息距今 ${Math.max(0, Math.floor((Date.now() - Number(st.lastIncomingAt)) / 60000))} 分钟`);
-    if (lastMsg) statusBits.push(`最近一条来自 ${String(lastMsg.sender || '未知')}：${String(lastMsg.text || lastMsg.plain || '').slice(0, 30)}`);
+    if (lastMsg) statusBits.push(`最近一条来自 ${String(lastMsg.sender || '未知')}：${truncateText(lastMsg.text || lastMsg.plain || '', 30)}`);
     if (lastMsg && looksLikeUnfinished(String(lastMsg.tail || lastMsg.plain || lastMsg.text || ''))) statusBits.push('对方可能没说完');
     if (lastAiMin != null) statusBits.push(`你上次发言 ${lastAiMin} 分钟前`);
     const usageHint = v2ToolEnabled('socialState') ? '需要查询自己的 Token 消耗时，调用 qq_social_state 读取 tokenUsage：只代表本会话已记录累计，不能当作今日用量或全账号用量；费用是估算，未结算请求可能未计入。只在需要时查，available=false 时说明暂无可用记录，不猜数字。\n\n' : '';
