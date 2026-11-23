@@ -1,10 +1,7 @@
 // 消息展示收据与宿主观察策略；不执行模型调用、不创建轮询或定时唤醒。
 export const hostObservationEnabled = cfg => cfg?.socialV2?.economy?.hostObservation === true;
 
-export function explicitWakeAllowed(cfg, reason) {
-  return cfg?.socialV2?.wake?.directOnly !== true
-    || ['private', 'atMention', 'nameMention', 'bootstrap', 'admin'].includes(reason);
-}
+export { daytimeQuiet, activityWakeAllowed, explicitWakeAllowed } from './activity-policy.js';
 
 // 主动检查通常间隔 30~90 分钟；超过两小时的沉寂不再用于自动补话。
 // 这是主动机会的期限，不删除消息，也不影响显式互动或管理员唤醒。

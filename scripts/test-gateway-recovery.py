@@ -1,6 +1,7 @@
 """真实恢复策略的隔离回归；没有QQ、服务器或真实凭据访问。"""
 import copy
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -17,6 +18,7 @@ spec.loader.exec_module(module)
 Guard=module.RecoveryGuard
 ACCOUNT='900000008'
 NOW=100000
+EXPIRED_NOTICE='[KickedOffLine] [下线通知] 你的账号当前登录已失效，请重新登录。'
 
 class Peer:
     account=ACCOUNT
@@ -61,6 +63,49 @@ class RecoveryTests(unittest.TestCase):
     def test_quick_success_does_not_read_password(self):
         state,peer,saved,reads=self.run_guard(Peer(quick='accepted'))
         self.assertEqual(peer.calls,[('quick',ACCOUNT)]);self.assertEqual(state['phase'],'online');self.assertEqual(reads,[])
+
+    def test_confirmed_login_expiry_skips_unusable_quick_ticket(self):
+        state={'version':1,'accountId':ACCOUNT,'lastOnlineAt':NOW-300,'firstOfflineAt':NOW-240,
+               'lastOfflineEvent':{'kind':'KickedOffLine','accountId':ACCOUNT,'time':NOW-250,'reason':EXPIRED_NOTICE}}
+        peer=Peer(quick='unknown')
+        result,peer,_,_=self.run_guard(peer,state)
+        self.assertEqual(result['phase'],'online')
+        self.assertEqual(peer.calls,[('password',ACCOUNT)])
+
+    def test_confirmed_expiry_still_respects_password_budget(self):
+        state={'accountId':ACCOUNT,'lastOnlineAt':NOW-300,'firstOfflineAt':NOW-240,
+               'lastOfflineEvent':{'kind':'KickedOffLine','accountId':ACCOUNT,'time':NOW-250,'reason':EXPIRED_NOTICE},
+               'attempts':[{'kind':'password','time':NOW-500},{'kind':'password','time':NOW-400}]}
+        result,peer,_,_=self.run_guard(state=state)
+        self.assertEqual(result['reason'],'budget_exhausted')
+        self.assertEqual(peer.calls,[])
+
+    def test_expiry_notice_cannot_replace_account_match_freshness_or_verification(self):
+        base={'kind':'KickedOffLine','accountId':ACCOUNT,'time':NOW-250,'reason':EXPIRED_NOTICE}
+        for event in [
+            {**base,'accountId':'12345'}, {**base,'time':NOW-500},
+            {**base,'time':NOW+1}, {**base,'kind':'SelfOffline'},
+            {**base,'reason':'QQ下线，请重新登录'}, {**base,'reason':EXPIRED_NOTICE+'账号被冻结'},
+        ]:
+            with self.subTest(event=event):
+                state={'accountId':ACCOUNT,'lastOnlineAt':NOW-300,'firstOfflineAt':NOW-240,'lastOfflineEvent':event}
+                result,peer,_,_=self.run_guard(Peer(quick='unknown'),state)
+                self.assertEqual(result['reason'],'unknown')
+                self.assertEqual(peer.calls,[('quick',ACCOUNT)])
+        for kind in ['device','captcha','invalid']:
+            state={'accountId':ACCOUNT,'lastOnlineAt':NOW-300,'firstOfflineAt':NOW-240,'lastOfflineEvent':base}
+            peer=Peer()
+            peer.login_status=lambda:{'phase':'waiting_qrcode','coreReady':False,'isLogin':False,'errorKind':kind}
+            result,peer,_,_=self.run_guard(peer,state)
+            self.assertEqual(result['reason'],kind)
+            self.assertEqual(peer.calls,[])
+
+    def test_offline_event_preserves_account_for_verification(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'events.jsonl'
+            event={'kind':'KickedOffLine','accountId':ACCOUNT,'time':NOW-250,'reason':EXPIRED_NOTICE}
+            path.write_text(json.dumps(event)+'\n',encoding='utf8')
+            self.assertEqual(module.read_offline_event(path),event)
 
     def test_missing_quick_record_can_use_bound_credential(self):
         peer=Peer();peer.accounts=[]
@@ -185,6 +230,7 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(module.classify_login({'code':0,'data':{'needCaptcha':True}})['kind'],'captcha')
         self.assertEqual(module.classify_login({'code':-1,'message':'你的用户身份已失效，请重新登录'})['kind'],'expired')
         self.assertEqual(module.classify_login({'code':-1,'message':'网络连接异常!'})['kind'],'transient')
+        self.assertEqual(module.classify_login({'code':-1,'message':'密码错误，请重新登录'})['kind'],'invalid')
 
     def test_recovered_cycle_clears_initialization_and_acceptance_markers(self):
         s={'version':1,'accountId':ACCOUNT,'acceptedAt':NOW-500,'initializingAt':NOW-500}

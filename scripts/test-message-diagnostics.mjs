@@ -31,3 +31,34 @@ test('模型错误后的通知不冒充成功回复；回合结束后晚发的�
  const e=createMessageDiagnostics({now:()=>at});e.receive('group:2','3');e.dispatch('group:2');e.model('group:2');at=3000;e.receive('group:2','4');e.end('group:2',{kind:'completed'});e.sendStart('group:2');e.sent('group:2');
  assert.equal(e.snapshot().traces.find(x=>x.messageId==='3').status,'replied');assert.equal(e.snapshot().traces.find(x=>x.messageId==='4').status,'received');
 });
+
+
+test('主动机会单独计时，不能把半小时前来信算成回复延迟', () => {
+ let at=1000;const d=createMessageDiagnostics({now:()=>at});
+ d.receive('group:1','7');at=1801000;d.dispatch('group:1','proactiveCheck');d.model('group:1');at+=5000;d.sent('group:1');d.end('group:1',{kind:'completed'});
+ const t=d.snapshot().traces.find(x=>x.status==='replied');
+ assert.equal(t.messageId,null);assert.equal(t.receivedAt,null);assert.equal(t.totalMs,null);assert.equal(t.modelMs,5000);
+ assert.equal(d.snapshot().traces.find(x=>x.messageId==='7').status,'received');
+});
+test('合批替换旧排队记录后重启，不制造虚假中断', () => {
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'qq-diag-batch-'));const file=path.join(dir,'diag.json');
+ try {
+  const d=createMessageDiagnostics({file,now:()=>1000});d.receive('group:1','1');d.queue('group:1','followup');d.receive('group:1','2');d.queue('group:1','atMention');d.flush();
+  const reopened=createMessageDiagnostics({file});const traces=reopened.snapshot().traces;
+  assert.equal(traces.find(x=>x.messageId==='1').status,'received');
+  assert.equal(traces.find(x=>x.messageId==='1').queuedAt,null);
+  assert.equal(traces.find(x=>x.messageId==='2').status,'interrupted');
+ } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+test('工具 JSON 错误有独立且不泄露参数的分类', () => {
+ assert.deepEqual(classifyOperationalError('DeepSeek Messages stream: tool input is invalid JSON secret'),{code:'tool_json',message:'模型工具参数格式错误'});
+});
+
+test('历史主动接话记录读取时纠正耗时展示，保存的原始时间不变', () => {
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'qq-diag-old-'));const file=path.join(dir,'diag.json');
+ try {
+  const original=JSON.stringify({traces:[{key:'group:1',messageId:'9',status:'replied',reason:'proactiveCheck',receivedAt:1000,dispatchedAt:1801000,modelAt:1801000,sentAt:1806000}],incidents:[]});
+  fs.writeFileSync(file,original);const d=createMessageDiagnostics({file});const trace=d.snapshot().traces[0];
+  assert.equal(trace.totalMs,null);assert.equal(trace.receivedAt,1000);assert.equal(trace.modelMs,5000);assert.equal(fs.readFileSync(file,'utf8'),original);
+ }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});

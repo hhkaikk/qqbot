@@ -1,12 +1,22 @@
 // 有界消息处理元数据；不接收正文、模型输出、URL、凭据或原始错误日志。
-import fs from 'node:fs';import path from 'node:path';import {randomUUID} from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 const validKey=key=>/^(group|private):[1-9]\d{0,19}$/.test(key);
-const labels={balance:'模型账户余额不足',timeout:'请求超时',auth:'服务鉴权失败',network:'服务网络不可达',unknown:'处理失败，原因未分类',
+const independentReasons = new Set(['proactiveCheck', 'replyCheck', 'timeout', 'bootstrap', 'background']);
+const labels={tool_json:'模型工具参数格式错误',balance:'模型账户余额不足',timeout:'请求超时',auth:'服务鉴权失败',network:'服务网络不可达',unknown:'处理失败，原因未分类',
   budget_exceeded:'当天主动聊天预算已达上限',conversation_budget_exceeded:'本会话主动聊天预算已达上限',anomaly_cooldown:'自动调用异常，冷却中',usage_unavailable:'费用暂不可核对',configuration_unavailable:'保护配置不可读',offline:'服务尚未就绪'};
 export function classifyOperationalError(error) {
-  const s=String(error?.message??error??'');
-  const code=/insufficient.?balance|余额不足|欠费/i.test(s)?'balance':/timeout|timed out|超时|TimeoutError/i.test(s)?'timeout':/401|403|unauthori|认证|鉴权/i.test(s)?'auth':/ECONN|ENET|EHOST|socket|fetch failed|网络/i.test(s)?'network':'unknown';
-  return {code,message:labels[code]};
+  const message = String(error?.message ?? error ?? '');
+  const patterns = [
+    ['tool_json', /tool input is invalid JSON/i],
+    ['balance', /insufficient.?balance|余额不足|欠费/i],
+    ['timeout', /timeout|timed out|超时|TimeoutError/i],
+    ['auth', /401|403|unauthori|认证|鉴权/i],
+    ['network', /ECONN|ENET|EHOST|socket|fetch failed|网络/i],
+  ];
+  const code = patterns.find(([, pattern]) => pattern.test(message))?.[0] ?? 'unknown';
+  return { code, message: labels[code] };
 }
 const duration=(start,end)=>Number.isFinite(start)&&Number.isFinite(end)&&start>0&&end>=start?end-start:null;
 export function createMessageDiagnostics({file,now=Date.now,maxTraces=200}={}) {
@@ -31,9 +41,52 @@ export function createMessageDiagnostics({file,now=Date.now,maxTraces=200}={}) {
     if(traces.length>maxTraces){const removed=traces.splice(0,traces.length-maxTraces);for(const r of removed){if(pending.get(r.key)===r)pending.delete(r.key);if(active.get(r.key)===r)active.delete(r.key);}}
     changed();return t;
   }
-  function receive(key,messageId){const t=add(key,messageId);if(t)pending.set(key,t);return t?.id;}
-  function queue(key,reason){const t=pending.get(key)||add(key);if(!t)return;pending.set(key,t);t.queuedAt??=now();t.reason=/^[A-Za-z]+(?::[A-Za-z]+)?$/.test(reason||'')?reason:null;t.status='queued';changed();}
-  function dispatch(key,reason){const t=pending.get(key)||add(key);if(!t)return;pending.delete(key);active.set(key,t);t.reason??=/^[A-Za-z]+$/.test(reason||'')?reason:null;t.dispatchedAt=now();t.status='dispatching';changed();}
+  // 被新来信替换的候选尚未投递模型，保留为已收到，防止重启后误报中断。
+  function replacePending(key, trace) {
+    const previous = pending.get(key);
+    if (previous && previous !== trace && previous.status === 'queued') {
+      previous.status = 'received';
+      previous.queuedAt = null;
+      previous.reason = null;
+    }
+    pending.set(key, trace);
+  }
+
+  function receive(key, messageId) {
+    const trace = add(key, messageId);
+    if (!trace) return;
+    replacePending(key, trace);
+    return trace.id;
+  }
+
+  function candidate(key, reason) {
+    const trace = pending.get(key);
+    // 定时主动机会没有对应的一条来信，不能沿用旧消息的接收时间。
+    if (independentReasons.has(reason) && trace?.reason !== reason) return add(key);
+    return trace || add(key);
+  }
+
+  function queue(key, reason) {
+    const trace = candidate(key, reason);
+    if (!trace) return;
+    replacePending(key, trace);
+    trace.queuedAt ??= now();
+    trace.reason = /^[A-Za-z]+(?::[A-Za-z]+)?$/.test(reason || '') ? reason : null;
+    trace.status = 'queued';
+    changed();
+  }
+
+  function dispatch(key, reason) {
+    const trace = candidate(key, reason);
+    if (!trace) return;
+    replacePending(key, trace);
+    pending.delete(key);
+    active.set(key, trace);
+    trace.reason ??= /^[A-Za-z]+$/.test(reason || '') ? reason : null;
+    trace.dispatchedAt = now();
+    trace.status = 'dispatching';
+    changed();
+  }
   function model(key){const t=active.get(key);if(t){t.modelAt??=now();t.status='model';changed();}}
   function sendStart(key){const t=active.get(key);if(t&&!t.sentAt&&!t.error){t.sendStartedAt??=now();changed();}}
   function sent(key){const t=active.get(key);if(t){if(t.error){t.notificationSentAt=now();changed();return;}if(t.endedAt&&t.sentAt)return;t.sentAt??=now();t.status='replied';t.sentCount=(t.sentCount||0)+1;changed();}}
@@ -50,7 +103,7 @@ export function createMessageDiagnostics({file,now=Date.now,maxTraces=200}={}) {
   }
   function snapshot(){return {generatedAt:now(),since:traces[0]?.receivedAt??null,services:structuredClone(services),incidents:structuredClone(incidents).reverse(),
     traces:traces.slice(-maxTraces).reverse().map(t=>({...structuredClone(t),queueMs:duration(t.queuedAt,t.dispatchedAt),dispatchMs:duration(t.dispatchedAt,t.modelAt),
-      modelMs:duration(t.modelAt,t.sendStartedAt??t.sentAt),sendMs:duration(t.sendStartedAt,t.sentAt),totalMs:duration(t.receivedAt,t.sentAt)})),
+      modelMs:duration(t.modelAt,t.sendStartedAt??t.sentAt),sendMs:duration(t.sendStartedAt,t.sentAt),totalMs:independentReasons.has(t.reason)?null:duration(t.receivedAt,t.sentAt)})),
     note:'从本次更新起记录阶段元数据；未触发回复的来信显示已收到，缺失事件不推算耗时。发送回执表示网关接受，不代表对方已读。'};}
   return {receive,queue,dispatch,model,sendStart,sent,fail,block,end,service,snapshot,flush};
 }

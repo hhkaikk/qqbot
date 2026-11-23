@@ -63,6 +63,26 @@ test('最近消息摘要遇到截断边界上的表情或生僻字时仍是合�
   }
 });
 
+test('唤醒只展示近期记忆线索，旧话题仍保存在会话', async () => {
+  const h = await bridgeHarness();
+  try {
+    h.setMode('reserved2');
+    const key = 'private:123';
+    const st = h.getSocialV2State(key);
+    st.activeTopics = [
+      { text: '早已聊完的旧话题', lastMentionAt: Date.now() - 3 * 3600000 },
+      { text: '正在聊的近况', lastMentionAt: Date.now() - 60000 },
+    ];
+    const prompt = h.buildWakePromptV2(key, 'private');
+    assert.match(prompt, /正在聊的近况/);
+    assert.doesNotMatch(prompt, /早已聊完的旧话题/);
+    assert.match(prompt, /与当前消息冲突时.*当前消息/);
+    assert.equal(st.activeTopics.length, 2);
+  } finally {
+    await h.close();
+  }
+});
+
 test('生成的实际安装 patch 与源保持相同的连贯规则', () => {
   const patch = fs.readFileSync(new URL('../plugins/qq-agent-presets/presets/qq-chat-v2.patch.yml', import.meta.url), 'utf8');
   assert.ok(patch.includes('【连贯优先】'));

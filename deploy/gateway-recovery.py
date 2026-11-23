@@ -51,8 +51,8 @@ def classify_login(body):
     message=str(body.get('message',''))
     if any(x in message for x in ['验证码','captcha']):kind='captcha'
     elif any(x in message for x in ['新设备','异常设备','手机验证','设备验证']):kind='device'
-    elif any(x in message for x in ['身份已失效','身份失效','登录态失效','重新登录','票据失效']):kind='expired'
     elif any(x in message for x in ['密码错误','密码不正确','账号或密码','帐号或密码','密码已修改','账号被冻结','帐号被冻结']):kind='invalid'
+    elif any(x in message for x in ['身份已失效','身份失效','登录已失效','登录态失效','重新登录','票据失效']):kind='expired'
     elif any(x in message.lower() for x in ['网络','连接异常','超时','timeout','network','连接失败']):kind='transient'
     else:kind='unknown'
     return {'kind':kind}
@@ -134,7 +134,8 @@ class GatewayClient:
         if type(data.get('isLogin')) is not bool or type(data.get('coreReady')) is not bool:raise GuardError('transport')
         if not isinstance(data.get('loginPhase'),str) or not data['loginPhase'].strip() or len(data['loginPhase'])>64:raise GuardError('transport')
         return {'phase':data.get('loginPhase'),'coreReady':data.get('coreReady') is True,
-                'isLogin':data.get('isLogin') is True,'errorKind':classify_login({'code':-1,'message':data.get('loginError','')})['kind']}
+                'isLogin':data.get('isLogin') is True,
+                'errorKind':classify_login({'code':-1,'message':data.get('loginError',''),'data':data})['kind']}
 
     def quick_accounts(self):
         r=self._web('GetQuickLoginList');data=r.get('data')
@@ -179,6 +180,20 @@ class RecoveryGuard:
         count=min(self.state.get('failureCount',0)+1,3);self.state['failureCount']=count
         self.state['nextAttemptAt']=self.now()+[180,300,900][min(count-1,2)]
         return self._set('cooldown',reason)
+    def _known_expired_session(self, now):
+        """仅使用当前账号最近一次已知下线通知，避免沿用历史或其他账号的原因。"""
+        event=self.state.get('lastOfflineEvent')
+        last_online=self.state.get('lastOnlineAt')
+        if not isinstance(event,dict) or not last_online or event.get('kind')!='KickedOffLine':
+            return False
+        if event.get('accountId')!=self.account:
+            return False
+        at=event.get('time')
+        if type(at) not in (int,float) or not last_online < at <= now or now-at>3600:
+            return False
+        reason=event.get('reason')
+        return (isinstance(reason,str) and '你的账号当前登录已失效' in reason
+                and classify_login({'code':-1,'message':reason})['kind']=='expired')
     def _confirm(self):
         for i in range(5):
             self.sleep(1)
@@ -212,8 +227,9 @@ class RecoveryGuard:
             if self.state.get('acceptedAt'):
                 if now-self.state['acceptedAt']>180:return self._block('login_stalled')
                 return self._set('waiting','accepted')
-            accounts=self.client.quick_accounts()
-            if self.account in accounts:
+            # 明确失效的登录票据不能用于快速登录；仍执行已有密码预算和人工验证阻断。
+            expired=(login.get('phase')=='waiting_qrcode' and self._known_expired_session(now))
+            if not expired and self.account in self.client.quick_accounts():
                 if not self._reserve('quick'):return self._budget_wait('quick')
                 result=self.client.quick_login(self.account)
                 if result['kind']=='accepted':return self._confirm()
@@ -291,7 +307,8 @@ def read_offline_event(path=EVENT_FILE):
         for line in reversed(path.read_text(encoding='utf8').splitlines()[-200:]):
             row=json.loads(line)
             if row.get('kind') in ['KickedOffLine','SelfOffline'] and isinstance(row.get('time'),(int,float)):
-                return {'kind':row['kind'],'time':row['time'],'reason':str(row.get('reason',''))[:300]}
+                return {'kind':row['kind'],'time':row['time'],'accountId':str(row.get('accountId','')),
+                        'reason':str(row.get('reason',''))[:300]}
     except Exception:pass
     return None
 

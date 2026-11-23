@@ -30,6 +30,8 @@ import * as diagnosticsModule from '../src/message-diagnostics.js';
 import * as operationsRoutes from '../src/operations-routes.js';
 import * as managementRoutes from '../src/management-routes.js';
 import * as economy from '../src/social-economy.js';
+import * as activityPolicy from '../src/activity-policy.js';
+import * as offlinePrompts from '../src/offline-prompts.js';
 import * as onebotHttp from '../src/onebot-http.js';
 import * as tokenRoutes from '../src/token-routes.js';
 import * as modelPrices from '../src/model-prices.js';
@@ -182,7 +184,7 @@ export async function bridgeHarness({ config = {}, savedState, files = {}, globa
     discoverDshLaunchToken: () => '', unwrap, createTurnCollector,
     ...markdown, ...sensitive, ...wait, ...safeFetch, ...forward, ...slang, ...sticker, ...stickerGateway,
     ...modelPrices, ...tokenLedger, ...voiceLib, ...stateAcl, ...presetPrompt, ...roleCard, ...memberMemory, ...messageRelationsModule, ...serverStatus, ...serviceHealth, ...gatewayRecoveryStatus, ...dashboardModule, ...economy, ...onebotHttp, ...tokenRoutes, ...speechInputModule, ...speechOutputModule, ...siliconflowSpeech, ...speechProviderAdmin, ...speechQuality,
-    ...spendGuardModule, ...diagnosticsModule, ...operationsRoutes, ...managementRoutes,
+    ...spendGuardModule, ...diagnosticsModule, ...operationsRoutes, ...managementRoutes, ...activityPolicy, ...offlinePrompts,
     // ACL 收紧会 spawn icacls 去改**真实**文件系统；测试不该做这件事（同理见下面的
     // cleanupTemp / processAudioVolume 桩）。桩成成功，让 hardenStateDirAcl 走正常分支。
     hardenDir: () => ({ ok: true, detail: 'stub' }),

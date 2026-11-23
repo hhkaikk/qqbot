@@ -51,6 +51,31 @@ test('只有历史没有新消息时，不把已回答的 @ 再设成焦点',()=
  assert.deepEqual(relationRefs('[CQ:reply,id=-12][CQ:at,qq=42]你好'),{replyMessageId:'-12',mentionedUserIds:['42']});
 });
 
+for (const [key, reason] of [['private:123', 'private'], ['group:456', 'atMention'], ['group:456', 'nameMention']]) {
+ test(`实际唤醒优先展示本轮 ${reason}，未展示的旧消息不会被确认`, async () => {
+  const h=await bridgeHarness({config:{socialV2:{context:{wakeMessageLimit:2,wakeRecentLimit:0}}}});
+  try {
+   h.setMode('reserved2');
+   h.setSelfIdentity('大肥鱼','42');
+   for(let i=1;i<=4;i++)h.appendSocialV2Message(key,'群友',`旧话题 ${i}`,`旧话题 ${i}`,false,false,String(i),[],'123');
+   const question = reason==='nameMention' ? '大肥鱼，我是在问新问题' : '我是在问新问题';
+   h.appendSocialV2Message(key,'提问者',question,question,false,false,'5',[],'123',[],reason==='atMention');
+   if(key.startsWith('group:'))h.appendSocialV2Message(key,'另一位群友','顺便聊个别的','顺便聊个别的',false,false,'6',[],'888');
+   await h.deliverPrompt(key,'唤醒',{wakeReason:reason});
+   const raw=h.calls.prompts[0].content[0].text;
+   const packet=JSON.parse(raw.split('【本次消息快照】\n')[1].split('\n')[0]);
+   assert.deepEqual(packet.messages.map(m=>m.seq),[1,5]);
+   assert.equal(packet.focus.messageId,'5');
+   assert.equal(packet.focus.userId,'123');
+   assert.equal(packet.readThroughSeq,1);
+   assert.equal(packet.partial,true);
+   const st=h.getSocialV2State(key);
+   assert.deepEqual(Array.from(st.modelSeenSeqs),[1,5]);
+   assert.equal(st.unread.length,key.startsWith('group:') ? 6 : 5);
+  }finally{await h.close();}
+ });
+}
+
 test('实际收件保留引用作者和 @ 对象，跨群引用不泄露身份',async()=>{
  const h=await bridgeHarness({config:{socialV2:{proactive:{enabled:false}}}});
  try{
