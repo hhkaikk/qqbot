@@ -11,6 +11,7 @@
 //
 // 用法：
 //   node scripts/setup-dsh.mjs [profile]
+//   node scripts/setup-dsh.mjs [profile] --restore-links
 //
 // 默认 profile 为 web；可用环境变量 DSH_HOME 指定 DSH 根目录。
 import fs from 'node:fs';
@@ -269,6 +270,24 @@ function ensureBundle(name) {
   return linkDir;
 }
 
+function restoreRegisteredBundleLinks() {
+  const file = path.join(DSH_HOME, 'profiles', PROFILE, 'package.json');
+  let pkg;
+  try {
+    pkg = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    fatal('无法读取 DSH profile 清单，请先完成 QQ 插件安装。');
+  }
+  const bundles = pkg?.dsh?.profile?.bundles;
+  for (const name of BUNDLE_NAMES) {
+    const installedPath = path.join(DSH_HOME, 'plugins', name).replace(/\\/g, '/');
+    if (!Array.isArray(bundles) || !bundles.includes(name) || pkg?.dependencies?.[name] !== `link:${installedPath}`) {
+      fatal(`profile 未注册用于此 QQ Bot 的 ${name}，请先运行安装命令。`);
+    }
+  }
+  for (const name of BUNDLE_NAMES) ensureBundle(name);
+}
+
 function patchProfilePackage(links) {
   const profileDir = path.join(DSH_HOME, 'profiles', PROFILE);
   const pkgFile = path.join(profileDir, 'package.json');
@@ -351,14 +370,18 @@ function autoInstallProfileBundles() {
   }
 }
 
-// Validate the existing YAML before changing any presets or configuration.
-const cordisPatch = prepareCordisPatch();
-regeneratePresetPatches();
-patchCordis(cordisPatch);
-const links = {};
-for (const name of BUNDLE_NAMES) links[name] = ensureBundle(name);
-patchProfilePackage(links);
-reportLegacyPresetDir();
-ensureLocalModeFile();
-autoInstallProfileBundles();
-log('Done. Restart DSH (or reload the profile) so the new presets/MCP take effect.');
+if (process.argv[3] === '--restore-links') {
+  restoreRegisteredBundleLinks();
+} else {
+  // Validate existing YAML before changing any presets or configuration.
+  const cordisPatch = prepareCordisPatch();
+  regeneratePresetPatches();
+  patchCordis(cordisPatch);
+  const links = {};
+  for (const name of BUNDLE_NAMES) links[name] = ensureBundle(name);
+  patchProfilePackage(links);
+  reportLegacyPresetDir();
+  ensureLocalModeFile();
+  autoInstallProfileBundles();
+  log('Done. Restart DSH (or reload the profile) so the new presets/MCP take effect.');
+}

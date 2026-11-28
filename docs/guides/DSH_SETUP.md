@@ -64,6 +64,7 @@
    - 尝试自动执行 `dsh plugin --profile web install`（当 `dsh` CLI 在 PATH 中可用时），注册两个插件的 bundle 依赖；若 `dsh` 不在 PATH，缺失依赖时 DSH 会提示补跑
 
    > 脚本可重复运行（幂等）：它会重建 `qq-agent-presets` 的 preset patch、更新 MCP 路径并重建失效的插件链接。
+   > 从备份恢复时，如果清单还在但 `node_modules` 或插件链接缺失，运行 `node scripts/setup-dsh.mjs web --restore-links`。Linux 的 `qqbot-dsh.service` 启动前会执行这一步，只补齐 QQ 插件链接，保留现有 profile 配置。启动后用 `agentPresets/list` 确认 `qq-chat` 和 `qq-chat-v2` 已加载。
    > MCP 条目通过 YAML 解析后**按顶层 `insert` 内的条目 id 增删**（不依赖标记注释），支持带引号的 id、共享 `insert` 与行内 YAML，并保留其他插件配置和嵌套数据。
    > 脚本在写入前验证 YAML；无法解析时停止，不覆盖配置或 preset。只修复历史版本在文件开头遗留的多余 `[]`，不会删除正文中的空数组或文本。
    > YAML 格式与注释会在序列化时规范化；首次修改前的完整原文保存在同目录 `cordis.patch.yml.qq-bridge.bak`，后续运行不覆盖该备份。

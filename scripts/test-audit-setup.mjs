@@ -36,7 +36,7 @@ function fixture(name, patch = '') {
   }));
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toLowerCase() !== 'path'));
   Object.assign(env, { PATH: path.dirname(process.execPath), DSH_HOME: home, HOME: home, USERPROFILE: home, QQ_BRIDGE_SKIP_DSH_INSTALL: '1' });
-  const run = (profile = 'web', extraEnv = {}) => spawnSync(process.execPath, [path.join(repo, 'scripts/setup-dsh.mjs'), profile], {
+  const run = (profile = 'web', extraEnv = {}, flags = []) => spawnSync(process.execPath, [path.join(repo, 'scripts/setup-dsh.mjs'), profile, ...flags], {
     env: { ...env, ...extraEnv }, cwd: repo, encoding: 'utf8', timeout: 15000,
   });
   return { repo, home, patchFile, run };
@@ -105,6 +105,39 @@ try {
     fs.writeFileSync(path.join(blocker.home, 'plugins/qq-mode-console/keep.txt'), 'keep');
     assert.notEqual(blocker.run().status, 0);
     assert.equal(fs.readFileSync(path.join(blocker.home, 'plugins/qq-mode-console/keep.txt'), 'utf8'), 'keep');
+  });
+
+  test('startup repair restores omitted plugin links without rewriting profile settings', () => {
+    const f = fixture('restore-links', '- insert: []\n');
+    const install = f.run();
+    assert.equal(install.status, 0, install.stderr);
+    const profile = path.join(f.home, 'profiles/web');
+    const manifest = path.join(profile, 'package.json');
+    fs.appendFileSync(f.patchFile, '# comment preserved during startup repair\n');
+    const before = [f.patchFile, manifest].map(file => [file, fs.readFileSync(file)]);
+    for (const name of ['qq-agent-presets', 'qq-mode-console']) {
+      fs.unlinkSync(path.join(profile, 'node_modules', name));
+      fs.unlinkSync(path.join(f.home, 'plugins', name));
+    }
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const repair = f.run('web', {}, ['--restore-links']);
+      assert.equal(repair.status, 0, repair.stderr);
+      for (const name of ['qq-agent-presets', 'qq-mode-console']) {
+        assert.equal(
+          fs.realpathSync(path.join(profile, 'node_modules', name)),
+          fs.realpathSync(path.join(f.repo, 'plugins', name)),
+        );
+      }
+      for (const [file, data] of before) assert.deepEqual(fs.readFileSync(file), data);
+    }
+  });
+
+  test('startup repair refuses unregistered profiles without modifying them', () => {
+    const f = fixture('restore-unregistered', '- insert: []\n');
+    const result = f.run('web', {}, ['--restore-links']);
+    assert.notEqual(result.status, 0);
+    assert.equal(fs.existsSync(path.join(f.home, 'plugins')), false);
+    assert.equal(fs.readFileSync(f.patchFile, 'utf8'), '- insert: []\n');
   });
 
   if (process.platform === 'win32') test('Windows runs the npm .cmd shim with literal profile arguments', () => {
